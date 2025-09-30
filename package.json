@@ -1,0 +1,28 @@
+{
+	"name": "bypass-manifest-cloudflare",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"deploy":	"wrangler deploy",
+		"deploy:local": "wrangler deploy --config wrangler.local.toml",
+		"dev": 		"wrangler dev",
+		"start": 	"wrangler dev",
+		"audit":    "node scripts/audit.js",
+		"download": "node scripts/download.js",
+		"stats":    "node scripts/stats.js",
+		"versions": "node scripts/versions.js"
+	},
+	"dependencies": {
+		"acorn": "^8.15.0",
+		"js-yaml": "^4.1.0",
+		"unzipit": "^1.4.3"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.19",
+		"vitest": "^2.0.4",
+		"wrangler": "^4.38.0",
+		"inquirer": "^9.0.0",
+		"chalk": "^5.0.0"
+	}
+}
