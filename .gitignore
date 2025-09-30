@@ -1,0 +1,50 @@
+# Logs
+
+logs
+_.log
+npm-debug.log_
+
+# Diagnostic
+
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# Dependency directories
+
+node_modules/
+jspm_packages/
+
+# Caches
+
+.npm
+.eslintcache
+.stylelintcache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+.cache
+.parcel-cache
+.temp
+
+# Wrangler
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+.wrangler/
+wrangler.local.toml
+
+# project
+
+.vscode/
+local/
+test/
+
+# LLM
+
+.claude/
+
+# OS
+
+.DS_Store

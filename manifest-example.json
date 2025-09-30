@@ -1,0 +1,28 @@
+{
+    "sites_js": {
+        "version": "4.2.1.0",
+        "url": "{domain-name}/sites.js"
+    },
+    "sites_json": {
+        "version": "4.2.1.0",
+        "url": "{domain-name}/sites.json"
+    },
+    "sites_updated_json": {
+        "version": "4.2.1.4",
+        "url": "{domain-name}/sites_updated.json"
+    },
+    "sites_custom_json": {
+        "version": "4.2.1.4",
+        "url": "{domain-name}/sites_custom.json"
+    },
+    "sites_aggregated_json": {
+      "url": "{domain-name}/sites_aggregated.json",
+      "version": "4.2.1.4",
+      "description": "Pre-aggregated JSON ruleset (base + updated + custom)"
+    },
+    "sites_aggregated_yaml": {
+      "url": "{domain-name}/sites_aggregated.yaml",
+      "version": "4.2.1.4",
+      "description": "Pre-aggregated YAML ruleset (base + updated + custom)"
+    }
+}
