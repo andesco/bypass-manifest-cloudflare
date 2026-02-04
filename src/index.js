@@ -1,6 +1,8 @@
 import { unzip } from 'unzipit';
 import { convertSitesJsToJson } from './convertSites.js';
 import { generateAggregatedJson } from './generateAggregatedJson.js';
+import { generateAggregatedSitesObject } from './generateAggregatedSitesObject.js';
+import { generateAggregatedJs } from './generateAggregatedJs.js';
 import { convertJsonToYaml } from './convertJsonToYaml.js';
 
 // URL constants set from environment variables (see wrangler.toml [vars] section)
@@ -39,6 +41,11 @@ export default {
       console.log('Manual update initiated.');
       ctx.waitUntil(updateFiles(env, true)); // Force update flag
       return new Response('Update initiated successfully!', { status: 200 });
+    } else if (path === '/health') {
+      const health = await buildHealthReport(env);
+      return new Response(JSON.stringify(health, null, 2), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     } else if (path === '/sites.js') {
       const sitesJs = await env.Bypass_KV.get('sites_js');
       if (sitesJs) {
@@ -84,6 +91,15 @@ export default {
       } else {
         return new Response('File not found', { status: 404 });
       }
+    } else if (path === '/sites_aggregated.js') {
+      const sitesAggregatedJs = await env.Bypass_KV.get('sites_aggregated_js');
+      if (sitesAggregatedJs) {
+        return new Response(sitesAggregatedJs, {
+          headers: { 'Content-Type': 'application/javascript' },
+        });
+      } else {
+        return new Response('File not found', { status: 404 });
+      }
     } else if (path === '/sites_aggregated.yaml') {
       const sitesAggregatedYaml = await env.Bypass_KV.get('sites_aggregated_yaml');
       if (sitesAggregatedYaml) {
@@ -110,14 +126,19 @@ export default {
 
 async function updateFiles(env, forceUpdate = false) {
   const logs = [];
+  const LOG_FLUSH_INTERVAL = 10;
   const log = async (message) => {
     console.log(message);
     logs.push(`[${new Date().toISOString()}] ${message}`);
-    await env.Bypass_KV.put('log:info', logs.join('\n'));
+    if (logs.length % LOG_FLUSH_INTERVAL === 0) {
+      await env.Bypass_KV.put('log:info', logs.join('\n'));
+    }
   };
 
   try {
     await log('Starting updateFiles function.');
+    await env.Bypass_KV.put('last_update_started_at', new Date().toISOString());
+    await env.Bypass_KV.put('last_update_status', 'running');
 
     // Set camelCase URL constants from environment variables with GIT_REPOSITORY_URL fallback
     const gitRepositoryUrl = env.GIT_REPOSITORY_URL ? env.GIT_REPOSITORY_URL.replace(/\/+$/, '') : null; // Remove trailing slashes
@@ -137,7 +158,7 @@ async function updateFiles(env, forceUpdate = false) {
     }
 
     await log('Fetching updates.json...');
-    const updatesResponse = await fetch(updatesJson);
+    const updatesResponse = await fetchWithRetry(updatesJson, { timeoutMs: 15000, retries: 2 });
     if (updatesResponse.ok) {
       const updatesJsonContent = await updatesResponse.json();
       // Extract version and update_link from the first addon's updates array
@@ -160,7 +181,7 @@ async function updateFiles(env, forceUpdate = false) {
     }
 
     await log('Fetching manifest.json from git repo...');
-    const manifestUpdatesResponse = await fetch(manifestJson);
+    const manifestUpdatesResponse = await fetchWithRetry(manifestJson, { timeoutMs: 15000, retries: 2 });
     if (manifestUpdatesResponse.ok) {
       const manifestUpdatesContent = await manifestUpdatesResponse.json();
       remoteManifestVersion = manifestUpdatesContent.version;
@@ -206,7 +227,7 @@ async function updateFiles(env, forceUpdate = false) {
         } else {
           await log('No existing sites.js found in KV for force update. Downloading from zip...');
           // Fall back to downloading zip if no sites.js exists
-          const zipResponse = await fetch(latestXpi);
+          const zipResponse = await fetchWithRetry(latestXpi, { timeoutMs: 30000, retries: 2 });
           if (!zipResponse.ok) {
             await log(`Failed to fetch zip file: ${zipResponse.statusText}`);
           } else {
@@ -239,7 +260,7 @@ async function updateFiles(env, forceUpdate = false) {
       } else {
         // Normal update process - download zip
         await log('Downloading and processing zip file...');
-        const zipResponse = await fetch(latestXpi);
+        const zipResponse = await fetchWithRetry(latestXpi, { timeoutMs: 30000, retries: 2 });
         if (!zipResponse.ok) {
           await log(`Failed to fetch zip file: ${zipResponse.statusText}`);
         } else {
@@ -276,7 +297,7 @@ async function updateFiles(env, forceUpdate = false) {
         await log('WARNING: No SITES_UPDATED_JSON URL available. Skipping sites_updated.json update.');
       } else {
         await log('Fetching mirrored files...');
-        const sitesUpdatedResponse = await fetch(sitesUpdatedJson);
+        const sitesUpdatedResponse = await fetchWithRetry(sitesUpdatedJson, { timeoutMs: 15000, retries: 2 });
         if (sitesUpdatedResponse.ok) {
           const sitesUpdatedContent = await sitesUpdatedResponse.text();
           await env.Bypass_KV.put('sites_updated', sitesUpdatedContent);
@@ -304,7 +325,7 @@ async function updateFiles(env, forceUpdate = false) {
       if (!sitesCustomJson) {
         await log('WARNING: No SITES_CUSTOM_JSON URL available. Skipping sites_custom.json update.');
       } else {
-        const sitesCustomResponse = await fetch(sitesCustomJson);
+        const sitesCustomResponse = await fetchWithRetry(sitesCustomJson, { timeoutMs: 15000, retries: 2 });
         if (sitesCustomResponse.ok) {
           const sitesCustomContent = await sitesCustomResponse.text();
           await env.Bypass_KV.put('sites_custom', sitesCustomContent);
@@ -323,8 +344,14 @@ async function updateFiles(env, forceUpdate = false) {
     const sites = await env.Bypass_KV.get('sites');
     const sitesUpdated = await env.Bypass_KV.get('sites_updated');
     const sitesCustom = await env.Bypass_KV.get('sites_custom');
+    const sitesJsTemplate = await env.Bypass_KV.get('sites_js');
 
     if (sites && sitesUpdated && sitesCustom) {
+      const aggregatedSitesObject = generateAggregatedSitesObject(sites, sitesUpdated, sitesCustom);
+      const aggregatedJs = generateAggregatedJs(aggregatedSitesObject, sitesJsTemplate);
+      await env.Bypass_KV.put('sites_aggregated_js', aggregatedJs);
+      await log('sites_aggregated.js stored in KV.');
+
       const aggregatedJson = generateAggregatedJson(sites, sitesUpdated, sitesCustom);
       await env.Bypass_KV.put('sites_aggregated_json', aggregatedJson);
       await log('sites_aggregated.json stored in KV.');
@@ -389,6 +416,10 @@ async function updateFiles(env, forceUpdate = false) {
           version: highestVersion,
           url: 'https://bypass.andrewe.dev/sites_aggregated.json',
         },
+        sites_aggregated_js: {
+          version: highestVersion,
+          url: 'https://bypass.andrewe.dev/sites_aggregated.js',
+        },
         sites_aggregated_yaml: {
           version: highestVersion,
           url: 'https://bypass.andrewe.dev/sites_aggregated.yaml',
@@ -402,8 +433,95 @@ async function updateFiles(env, forceUpdate = false) {
     }
 
     await log('updateFiles function finished.');
+    await env.Bypass_KV.put('last_update_finished_at', new Date().toISOString());
+    await env.Bypass_KV.put('last_update_status', 'ok');
+    await env.Bypass_KV.put('last_update_ok_at', new Date().toISOString());
+    await env.Bypass_KV.put('log:info', logs.join('\n'));
   } catch (error) {
     await log(`Error in updateFiles: ${error.message}\n${error.stack}`);
+    await env.Bypass_KV.put('last_update_finished_at', new Date().toISOString());
+    await env.Bypass_KV.put('last_update_status', 'error');
+    await env.Bypass_KV.put('last_update_error', String(error?.message || error));
+    await env.Bypass_KV.put('log:info', logs.join('\n'));
   }
 }
 
+async function buildHealthReport(env) {
+  const [
+    lastUpdateStartedAt,
+    lastUpdateFinishedAt,
+    lastUpdateStatus,
+    lastUpdateError,
+    lastUpdateOkAt,
+    lastSitesVersion,
+    lastRemoteManifestVersion,
+    manifest,
+    sitesUpdatedRaw,
+  ] = await Promise.all([
+    env.Bypass_KV.get('last_update_started_at'),
+    env.Bypass_KV.get('last_update_finished_at'),
+    env.Bypass_KV.get('last_update_status'),
+    env.Bypass_KV.get('last_update_error'),
+    env.Bypass_KV.get('last_update_ok_at'),
+    env.Bypass_KV.get('last_sites_version'),
+    env.Bypass_KV.get('last_remote_manifest_version'),
+    env.Bypass_KV.get('manifest'),
+    env.Bypass_KV.get('sites_updated'),
+  ]);
+
+  let sitesUpdatedVersion = null;
+  if (sitesUpdatedRaw) {
+    try {
+      const sitesUpdatedData = JSON.parse(sitesUpdatedRaw);
+      const updVersions = [];
+      for (const value of Object.values(sitesUpdatedData)) {
+        if (value && typeof value === 'object' && value.upd_version) {
+          updVersions.push(value.upd_version);
+        }
+      }
+      sitesUpdatedVersion = getHighestVersion(updVersions);
+    } catch (error) {
+      sitesUpdatedVersion = null;
+    }
+  }
+
+  let manifestJson = null;
+  if (manifest) {
+    try {
+      manifestJson = JSON.parse(manifest);
+    } catch (error) {
+      manifestJson = null;
+    }
+  }
+
+  return {
+    status: lastUpdateStatus || 'unknown',
+    last_update_started_at: lastUpdateStartedAt || null,
+    last_update_finished_at: lastUpdateFinishedAt || null,
+    last_update_ok_at: lastUpdateOkAt || null,
+    last_update_error: lastUpdateError || null,
+    versions: {
+      sites: lastSitesVersion || null,
+      sites_updated: sitesUpdatedVersion || null,
+      manifest: lastRemoteManifestVersion || null,
+    },
+    manifest: manifestJson,
+  };
+}
+
+async function fetchWithRetry(url, { timeoutMs = 15000, retries = 2 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('fetchWithRetry failed');
+}
