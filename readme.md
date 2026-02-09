@@ -13,10 +13,12 @@ The result is a updated manifest that contains the current version and URL for e
 **0. `manifest.json`**
    1. `sites.js`
    2. `sites.json`
-   3. `sites_updated.json`
-   4. `sites_custom.json`
-   5. `sites_aggregated.json`
-   6. `sites_aggregated.yaml`
+   3. `sites_latest.js`
+   4. `sites_latest.json`
+   5. `sites_updated.json`
+   6. `sites_custom.json`
+   7. `sites_aggregated.json`
+   8. `sites_aggregated.yaml`
 
 ### Mirrored and Generated Files
 <!-- this section should not be eddited by Claude or Gemini -->
@@ -31,6 +33,18 @@ The result is a updated manifest that contains the current version and URL for e
    - generated file: `JSON` derived from `sites.js`
    - version: matches the version of `sites.js`
    - cron: if `sites.js` updates, convert to `JSON` and save `sites.json`
+
+## Chrome Latest (updates.xml)
+
+These files are extracted from the latest Chrome `.crx` referenced in `updates.xml`.
+
+**`sites_latest.js`**
+- mirrored file: extracted from the latest `.crx` archive in `updates.xml`
+- version: matches the version in `updates.xml`
+
+**`sites_latest.json`**
+- generated file: `JSON` derived from `sites_latest.js`
+- version: matches the version of `sites_latest.js`
 
 **3. `sites_updated.json`**
    - mirrored file: [`sites_updated.json`][SITES_UPDATED_JSON]
@@ -78,6 +92,7 @@ https://git.net/project/{username}/{repository}
 | Variable             | Description |
 |----------------------|-------------|
 | `UPDATES_JSON`       | URL to `updates.json` |
+| `UPDATES_XML`        | URL to `updates.xml` |
 | `SITES_UPDATED_JSON` | URL to `sites_updated.json` |
 | `SITES_CUSTOM_JSON`  | URL to `sites_custom.json` |
 | `MANIFEST_JSON`      | URL to `manifest.json` |
@@ -104,5 +119,4 @@ The worker updates the files through two mechanisms:
    2. **Manual Updates**: \
    The update process can be manually initiated by sending a request to the endpoint: \
    `/initiate-update`
-
 

@@ -27,6 +27,49 @@ function getHighestVersion(versions) {
   })[0];
 }
 
+function parseChromeUpdatesXml(xmlText) {
+  // Expected format:
+  // <updatecheck codebase='https://.../file=bypass-paywalls-chrome-clean-4.3.0.0.crx' version='4.3.0.0' />
+  const updateCheckTag = xmlText.match(/<updatecheck\b[^>]*\/?>/i)?.[0] || '';
+  const codebase = updateCheckTag.match(/\bcodebase\s*=\s*['"]([^'"]+)['"]/i)?.[1] || null;
+  const version = updateCheckTag.match(/\bversion\s*=\s*['"]([^'"]+)['"]/i)?.[1] || null;
+  return { version, codebase };
+}
+
+function extractZipFromCrx(crxArrayBuffer) {
+  const bytes = new Uint8Array(crxArrayBuffer);
+  if (bytes.length < 12) throw new Error('CRX too small');
+
+  const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (magic !== 'Cr24') throw new Error(`Invalid CRX magic: ${magic}`);
+
+  const view = new DataView(crxArrayBuffer);
+  const version = view.getUint32(4, true);
+
+  if (version === 2) {
+    // CRX2: [magic][version][pubKeyLen][sigLen][pubKey][sig][zip...]
+    const pubKeyLen = view.getUint32(8, true);
+    const sigLen = view.getUint32(12, true);
+    const zipStart = 16 + pubKeyLen + sigLen;
+    if (zipStart > bytes.length) throw new Error('CRX2 header exceeds file size');
+    return bytes.slice(zipStart).buffer;
+  }
+
+  if (version === 3) {
+    // CRX3: [magic][version][headerSize][headerBytes][zip...]
+    const headerSize = view.getUint32(8, true);
+    const zipStart = 12 + headerSize;
+    if (zipStart > bytes.length) throw new Error('CRX3 header exceeds file size');
+    return bytes.slice(zipStart).buffer;
+  }
+
+  throw new Error(`Unsupported CRX version: ${version}`);
+}
+
+function findSitesJsEntry(entries) {
+  return Object.values(entries).find(entry => entry.name.split('/').pop() === 'sites.js') || null;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     console.log('Scheduled event triggered.');
@@ -55,10 +98,28 @@ export default {
       } else {
         return new Response('File not found', { status: 404 });
       }
+    } else if (path === '/sites_latest.js') {
+      const sitesLatestJs = await env.Bypass_KV.get('sites_latest_js');
+      if (sitesLatestJs) {
+        return new Response(sitesLatestJs, {
+          headers: { 'Content-Type': 'application/javascript' },
+        });
+      } else {
+        return new Response('File not found', { status: 404 });
+      }
     } else if (path === '/sites.json') {
       const sites = await env.Bypass_KV.get('sites');
       if (sites) {
         return new Response(sites, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } else {
+        return new Response('File not found', { status: 404 });
+      }
+    } else if (path === '/sites_latest.json') {
+      const sitesLatest = await env.Bypass_KV.get('sites_latest_json');
+      if (sitesLatest) {
+        return new Response(sitesLatest, {
           headers: { 'Content-Type': 'application/json' },
         });
       } else {
@@ -143,14 +204,17 @@ async function updateFiles(env, forceUpdate = false) {
     // Set camelCase URL constants from environment variables with GIT_REPOSITORY_URL fallback
     const gitRepositoryUrl = env.GIT_REPOSITORY_URL ? env.GIT_REPOSITORY_URL.replace(/\/+$/, '') : null; // Remove trailing slashes
     const updatesJson = env.UPDATES_JSON || (gitRepositoryUrl ? `${gitRepositoryUrl}/blob/raw?file=updates.json` : null);
+    const updatesXml = env.UPDATES_XML || (gitRepositoryUrl ? `${gitRepositoryUrl}/blob/raw?file=updates.xml` : null);
     const sitesUpdatedJson = env.SITES_UPDATED_JSON || (gitRepositoryUrl ? `${gitRepositoryUrl}/blob/raw?file=sites_updated.json` : null);
     const sitesCustomJson = env.SITES_CUSTOM_JSON || (gitRepositoryUrl ? `${gitRepositoryUrl}/blob/raw?file=sites_custom.json` : null);
     const manifestJson = env.MANIFEST_JSON || (gitRepositoryUrl ? `${gitRepositoryUrl}/blob/raw?file=manifest.json` : null);
 
     let sitesVersion = null;
+    let sitesLatestVersion = null;
     let remoteManifestVersion = null;
     let sitesUpdatedVersion = null;
     let latestXpi = null;
+    let latestCrx = null;
 
     if (!updatesJson) {
       await log('ERROR: No UPDATES_JSON URL available. Set UPDATES_JSON or GIT_REPOSITORY_URL environment variable.');
@@ -175,6 +239,23 @@ async function updateFiles(env, forceUpdate = false) {
       await log(`Failed to fetch updates.json: ${updatesResponse.statusText}`);
     }
 
+    if (!updatesXml) {
+      await log('WARNING: No UPDATES_XML URL available. Set UPDATES_XML or GIT_REPOSITORY_URL environment variable.');
+    } else {
+      await log('Fetching updates.xml...');
+      const updatesXmlResponse = await fetchWithRetry(updatesXml, { timeoutMs: 15000, retries: 2 });
+      if (updatesXmlResponse.ok) {
+        const updatesXmlContent = await updatesXmlResponse.text();
+        const parsed = parseChromeUpdatesXml(updatesXmlContent);
+        sitesLatestVersion = parsed.version;
+        latestCrx = parsed.codebase;
+        await log(`Version from updates.xml: ${sitesLatestVersion}`);
+        await log(`CRX URL from updates.xml: ${latestCrx}`);
+      } else {
+        await log(`Failed to fetch updates.xml: ${updatesXmlResponse.statusText}`);
+      }
+    }
+
     if (!manifestJson) {
       await log('ERROR: No MANIFEST_JSON URL available. Set MANIFEST_JSON or GIT_REPOSITORY_URL environment variable.');
       return;
@@ -192,20 +273,29 @@ async function updateFiles(env, forceUpdate = false) {
 
     const lastSitesVersion = await env.Bypass_KV.get('last_sites_version');
     await log(`Last sites version from KV: ${lastSitesVersion}`);
+    const lastSitesLatestVersion = await env.Bypass_KV.get('last_sites_latest_version');
+    await log(`Last sites_latest version from KV: ${lastSitesLatestVersion}`);
     const lastRemoteManifestVersion = await env.Bypass_KV.get('last_remote_manifest_version');
     await log(`Last remote manifest version from KV: ${lastRemoteManifestVersion}`);
 
     let zipNeedsUpdate = false;
+    let latestZipNeedsUpdate = false;
     let mirroredFilesNeedUpdate = false;
 
     if (forceUpdate) {
       await log('Force update requested. Will process sites.js conversion.');
       zipNeedsUpdate = true;
+      latestZipNeedsUpdate = true;
       mirroredFilesNeedUpdate = true;
     } else {
       if (sitesVersion && sitesVersion !== lastSitesVersion) {
         await log('sites.json version changed. Zip needs update.');
         zipNeedsUpdate = true;
+      }
+
+      if (sitesLatestVersion && sitesLatestVersion !== lastSitesLatestVersion) {
+        await log('sites_latest.json version changed. Latest zip needs update.');
+        latestZipNeedsUpdate = true;
       }
 
       if (remoteManifestVersion && remoteManifestVersion !== lastRemoteManifestVersion) {
@@ -215,81 +305,90 @@ async function updateFiles(env, forceUpdate = false) {
     }
 
     if (zipNeedsUpdate && latestXpi) {
-      if (forceUpdate) {
-        // For force updates, use existing sites.js from KV if available
-        await log('Force update: Processing existing sites.js from KV...');
-        const existingSitesJs = await env.Bypass_KV.get('sites_js');
-        if (existingSitesJs) {
-          await log('Converting existing sites.js to JSON...');
-          const sitesJson = convertSitesJsToJson(existingSitesJs);
-          await env.Bypass_KV.put('sites', sitesJson);
-          await log('sites.json stored in KV (force update).');
-        } else {
-          await log('No existing sites.js found in KV for force update. Downloading from zip...');
-          // Fall back to downloading zip if no sites.js exists
-          const zipResponse = await fetchWithRetry(latestXpi, { timeoutMs: 30000, retries: 2 });
-          if (!zipResponse.ok) {
-            await log(`Failed to fetch zip file: ${zipResponse.statusText}`);
-          } else {
-            const zipData = await zipResponse.arrayBuffer();
-            await log('Unzipping zip data...');
-            const { entries } = await unzip(zipData);
-            const sitesJsEntry = Object.values(entries).find(entry => entry.name.endsWith('/sites.js'));
-            if (sitesJsEntry) {
-              await log('Processing sites.js from zip...');
-              const sitesJsContent = await sitesJsEntry.text();
-
-              // Store the raw sites.js content
-              await env.Bypass_KV.put('sites_js', sitesJsContent);
-              await log('sites.js stored in KV.');
-
-              // Convert and store as JSON
-              const sitesJson = convertSitesJsToJson(sitesJsContent);
-              await env.Bypass_KV.put('sites', sitesJson);
-              await log('sites.json stored in KV.');
-
-              if (sitesVersion) {
-                await env.Bypass_KV.put('last_sites_version', sitesVersion);
-                await log('last_sites_version stored in KV.');
-              }
-            } else {
-              await log('sites.js not found in zip file.');
-            }
-          }
-        }
+      await log(`${forceUpdate ? 'Force update: d' : 'D'}ownloading and processing zip file...`);
+      const zipResponse = await fetchWithRetry(latestXpi, { timeoutMs: 30000, retries: 2 });
+      if (!zipResponse.ok) {
+        await log(`Failed to fetch zip file: ${zipResponse.statusText}`);
       } else {
-        // Normal update process - download zip
-        await log('Downloading and processing zip file...');
-        const zipResponse = await fetchWithRetry(latestXpi, { timeoutMs: 30000, retries: 2 });
-        if (!zipResponse.ok) {
-          await log(`Failed to fetch zip file: ${zipResponse.statusText}`);
-        } else {
-          const zipData = await zipResponse.arrayBuffer();
-          await log('Unzipping zip data...');
-          const { entries } = await unzip(zipData);
-          const sitesJsEntry = Object.values(entries).find(entry => entry.name.endsWith('/sites.js'));
-          if (sitesJsEntry) {
-            await log('Processing sites.js...');
-            const sitesJsContent = await sitesJsEntry.text();
+        const zipData = await zipResponse.arrayBuffer();
+        await log('Unzipping zip data...');
+        const { entries } = await unzip(zipData);
+        const sitesJsEntry = findSitesJsEntry(entries);
+        if (sitesJsEntry) {
+          await log('Processing sites.js...');
+          const sitesJsContent = await sitesJsEntry.text();
 
-            // Store the raw sites.js content
-            await env.Bypass_KV.put('sites_js', sitesJsContent);
-            await log('sites.js stored in KV.');
+          // Store the raw sites.js content
+          await env.Bypass_KV.put('sites_js', sitesJsContent);
+          await log('sites.js stored in KV.');
 
-            // Convert and store as JSON
-            const sitesJson = convertSitesJsToJson(sitesJsContent);
-            await env.Bypass_KV.put('sites', sitesJson);
-            await log('sites.json stored in KV.');
+          // Convert and store as JSON
+          const sitesJson = convertSitesJsToJson(sitesJsContent);
+          await env.Bypass_KV.put('sites', sitesJson);
+          await log('sites.json stored in KV.');
 
+          if (sitesVersion) {
             await env.Bypass_KV.put('last_sites_version', sitesVersion);
             await log('last_sites_version stored in KV.');
-          } else {
-            await log('sites.js not found in zip file.');
           }
+        } else {
+          await log('sites.js not found in zip file.');
         }
       }
     } else if (zipNeedsUpdate && !latestXpi) {
       await log('Cannot update ZIP file: No XPI URL found in updates.json');
+      // Still allow regenerating `sites.json` from the existing `sites.js` cache on manual refresh.
+      if (forceUpdate) {
+        const existingSitesJs = await env.Bypass_KV.get('sites_js');
+        if (existingSitesJs) {
+          await log('Force update: Converting existing sites.js to JSON...');
+          const sitesJson = convertSitesJsToJson(existingSitesJs);
+          await env.Bypass_KV.put('sites', sitesJson);
+          await log('sites.json stored in KV (force update).');
+          if (sitesVersion) {
+            await env.Bypass_KV.put('last_sites_version', sitesVersion);
+            await log('last_sites_version stored in KV (force update).');
+          }
+        } else {
+          await log('Force update: No existing sites.js found in KV.');
+        }
+      }
+    }
+
+    if (latestZipNeedsUpdate && latestCrx) {
+      await log('Downloading and processing CRX file for sites_latest...');
+      const crxResponse = await fetchWithRetry(latestCrx, { timeoutMs: 30000, retries: 2 });
+      if (!crxResponse.ok) {
+        await log(`Failed to fetch CRX file: ${crxResponse.statusText}`);
+      } else {
+        const crxData = await crxResponse.arrayBuffer();
+        await log('Extracting ZIP payload from CRX...');
+        const zipData = extractZipFromCrx(crxData);
+
+        await log('Unzipping CRX ZIP payload...');
+        const { entries } = await unzip(zipData);
+        const sitesJsEntry = findSitesJsEntry(entries);
+        if (sitesJsEntry) {
+          await log('Processing sites.js from CRX...');
+          const sitesJsContent = await sitesJsEntry.text();
+
+          await env.Bypass_KV.put('sites_latest_js', sitesJsContent);
+          await log('sites_latest.js stored in KV.');
+
+          const sitesLatestJson = convertSitesJsToJson(sitesJsContent);
+          await env.Bypass_KV.put('sites_latest_json', sitesLatestJson);
+          await log('sites_latest.json stored in KV.');
+
+          if (sitesLatestVersion) {
+            await env.Bypass_KV.put('last_sites_latest_version', sitesLatestVersion);
+            await log('last_sites_latest_version stored in KV.');
+          }
+        } else {
+          await log('sites.js not found in CRX payload.');
+        }
+      }
+    } else if (latestZipNeedsUpdate && !latestCrx) {
+      await log('Cannot update latest zip file: No CRX URL found in updates.xml');
     }
 
     if (mirroredFilesNeedUpdate) {
@@ -341,22 +440,22 @@ async function updateFiles(env, forceUpdate = false) {
 
     // Generate and store aggregated files
     await log('Generating aggregated files...');
-    const sites = await env.Bypass_KV.get('sites');
-    const sitesUpdated = await env.Bypass_KV.get('sites_updated');
+    const sitesLatestJson = await env.Bypass_KV.get('sites_latest_json');
     const sitesCustom = await env.Bypass_KV.get('sites_custom');
-    const sitesJsTemplate = await env.Bypass_KV.get('sites_js');
+    // Prefer the Chrome "latest" template; fall back to the Firefox XPI template if needed.
+    const sitesJsTemplate = (await env.Bypass_KV.get('sites_latest_js')) || (await env.Bypass_KV.get('sites_js'));
 
-    if (sites && sitesUpdated && sitesCustom) {
-      const aggregatedSitesObject = generateAggregatedSitesObject(sites, sitesUpdated, sitesCustom);
+    if (sitesLatestJson && sitesCustom) {
+      const aggregatedSitesObject = generateAggregatedSitesObject(sitesLatestJson, sitesCustom);
       const aggregatedJs = generateAggregatedJs(aggregatedSitesObject, sitesJsTemplate);
       await env.Bypass_KV.put('sites_aggregated_js', aggregatedJs);
       await log('sites_aggregated.js stored in KV.');
 
-      const aggregatedJson = generateAggregatedJson(sites, sitesUpdated, sitesCustom);
+      const aggregatedJson = generateAggregatedJson(sitesLatestJson, sitesCustom);
       await env.Bypass_KV.put('sites_aggregated_json', aggregatedJson);
       await log('sites_aggregated.json stored in KV.');
 
-      const allSourceVersions = [sitesVersion, sitesUpdatedVersion, remoteManifestVersion].filter(v => v);
+      const allSourceVersions = [sitesLatestVersion, remoteManifestVersion].filter(v => v);
       const highestSourceVersion = getHighestVersion(allSourceVersions);
       const aggregatedYaml = convertJsonToYaml(aggregatedJson, highestSourceVersion);
       await env.Bypass_KV.put('sites_aggregated_yaml', aggregatedYaml);
@@ -371,7 +470,7 @@ async function updateFiles(env, forceUpdate = false) {
       await log('Force update completed successfully.');
     }
 
-    if (sitesVersion && remoteManifestVersion) {
+    if ((sitesVersion || sitesLatestVersion) && remoteManifestVersion) {
       // Ensure we have sitesUpdatedVersion even if files weren't updated
       if (!sitesUpdatedVersion) {
         const existingSitesUpdated = await env.Bypass_KV.get('sites_updated');
@@ -392,39 +491,55 @@ async function updateFiles(env, forceUpdate = false) {
         }
       }
       await log('Generating worker manifest.json...');
-      const allVersions = [sitesVersion, sitesUpdatedVersion, remoteManifestVersion].filter(v => v);
+      // Aggregated outputs come from Chrome-latest sites plus custom rules.
+      const allVersions = [sitesLatestVersion, remoteManifestVersion].filter(v => v);
       const highestVersion = getHighestVersion(allVersions);
 
-      const workerManifest = {
-        sites_js: {
-          version: sitesVersion,
-          url: 'https://bypass.andrewe.dev/sites.js',
-        },
-        sites_json: {
-          version: sitesVersion,
-          url: 'https://bypass.andrewe.dev/sites.json',
-        },
-        sites_updated_json: {
-          version: sitesUpdatedVersion || remoteManifestVersion,
-          url: 'https://bypass.andrewe.dev/sites_updated.json',
-        },
-        sites_custom_json: {
-          version: remoteManifestVersion,
-          url: 'https://bypass.andrewe.dev/sites_custom.json',
-        },
-        sites_aggregated_json: {
-          version: highestVersion,
-          url: 'https://bypass.andrewe.dev/sites_aggregated.json',
-        },
-        sites_aggregated_js: {
-          version: highestVersion,
-          url: 'https://bypass.andrewe.dev/sites_aggregated.js',
-        },
-        sites_aggregated_yaml: {
-          version: highestVersion,
-          url: 'https://bypass.andrewe.dev/sites_aggregated.yaml',
-        },
-      };
+	      const workerManifest = {
+	        // Manifest ordering (per user request):
+	        // sites_* then sites_updated_* then sites_latest_* then sites_custom_* then sites_aggregated_*
+	        // When multiple formats exist: JS then JSON then YAML.
+	        ...(sitesVersion ? {
+	          sites_js: {
+	            version: sitesVersion,
+	            url: 'https://bypass.andrewe.dev/sites.js',
+	          },
+	          sites_json: {
+	            version: sitesVersion,
+	            url: 'https://bypass.andrewe.dev/sites.json',
+	          },
+	        } : {}),
+	        sites_updated_json: {
+	          version: sitesUpdatedVersion || remoteManifestVersion,
+	          url: 'https://bypass.andrewe.dev/sites_updated.json',
+	        },
+	        ...(sitesLatestVersion ? {
+	          sites_latest_js: {
+	            version: sitesLatestVersion,
+	            url: 'https://bypass.andrewe.dev/sites_latest.js',
+	          },
+	          sites_latest_json: {
+	            version: sitesLatestVersion,
+	            url: 'https://bypass.andrewe.dev/sites_latest.json',
+	          },
+	        } : {}),
+	        sites_custom_json: {
+	          version: remoteManifestVersion,
+	          url: 'https://bypass.andrewe.dev/sites_custom.json',
+	        },
+	        sites_aggregated_js: {
+	          version: highestVersion,
+	          url: 'https://bypass.andrewe.dev/sites_aggregated.js',
+	        },
+	        sites_aggregated_json: {
+	          version: highestVersion,
+	          url: 'https://bypass.andrewe.dev/sites_aggregated.json',
+	        },
+	        sites_aggregated_yaml: {
+	          version: highestVersion,
+	          url: 'https://bypass.andrewe.dev/sites_aggregated.yaml',
+	        },
+	      };
       await log(`Generated worker manifest: ${JSON.stringify(workerManifest)}`);
       await env.Bypass_KV.put('manifest', JSON.stringify(workerManifest, null, 2));
       await log('Worker manifest.json stored in KV.');
@@ -454,6 +569,7 @@ async function buildHealthReport(env) {
     lastUpdateError,
     lastUpdateOkAt,
     lastSitesVersion,
+    lastSitesLatestVersion,
     lastRemoteManifestVersion,
     manifest,
     sitesUpdatedRaw,
@@ -464,6 +580,7 @@ async function buildHealthReport(env) {
     env.Bypass_KV.get('last_update_error'),
     env.Bypass_KV.get('last_update_ok_at'),
     env.Bypass_KV.get('last_sites_version'),
+    env.Bypass_KV.get('last_sites_latest_version'),
     env.Bypass_KV.get('last_remote_manifest_version'),
     env.Bypass_KV.get('manifest'),
     env.Bypass_KV.get('sites_updated'),
@@ -502,6 +619,7 @@ async function buildHealthReport(env) {
     last_update_error: lastUpdateError || null,
     versions: {
       sites: lastSitesVersion || null,
+      sites_latest: lastSitesLatestVersion || null,
       sites_updated: sitesUpdatedVersion || null,
       manifest: lastRemoteManifestVersion || null,
     },

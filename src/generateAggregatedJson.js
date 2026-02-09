@@ -1,8 +1,8 @@
-export function generateAggregatedJson(sites, sites_updated, sites_custom) {
+export function generateAggregatedJson(sites_latest_json, sites_custom) {
     console.log('Starting aggregation...');
 
-    // 1. Load and merge rules with precedence: Custom > Updated > Base
-    let allRules = { ...JSON.parse(sites), ...JSON.parse(sites_updated), ...JSON.parse(sites_custom) };
+    // 1. Load and merge rules with precedence: Custom > Base (Chrome latest)
+    let allRules = { ...JSON.parse(sites_latest_json), ...JSON.parse(sites_custom) };
 
     // 2. Collect rule keys to delete
     const ruleKeysToDelete = new Set();
