@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import chalk from 'chalk';
+import { generateAggregatedArrayFromSources, mergeRulesByPrecedence, splitGroup } from '../src/aggregation.js';
 
 const localDir = path.join(process.cwd(), 'local');
 
@@ -16,19 +17,19 @@ function loadFile(fileName) {
 
 function simulateAggregation() {
     // Load source files individually to replicate generateAggregatedJson.js logic
-    const sites = JSON.parse(loadFile('sites.json') || '{}');
+    const sites = JSON.parse((loadFile('sites_latest.json') || loadFile('sites.json')) || '{}');
     const sitesUpdated = JSON.parse(loadFile('sites_updated.json') || '{}');
     const sitesCustom = JSON.parse(loadFile('sites_custom.json') || '{}');
 
     // 1. Load and merge rules with precedence: Custom > Updated > Base
-    let allRules = { ...sites, ...sitesUpdated, ...sitesCustom };
+    const allRules = mergeRulesByPrecedence([sites, sitesUpdated, sitesCustom]);
 
     // Count total input domains from merged rules (accounting for precedence)
     let totalInputDomains = 0;
     for (const key in allRules) {
         const rule = allRules[key];
         if (rule.group) {
-            const domains = Array.isArray(rule.group) ? rule.group : rule.group.split(',');
+            const domains = splitGroup(rule.group);
             totalInputDomains += domains.length;
         } else if (rule.domain && rule.domain !== '###') {
             totalInputDomains++;
@@ -64,7 +65,7 @@ function simulateAggregation() {
     ruleKeysToDelete.forEach(key => {
         const rule = allRules[key];
         if (rule && rule.group) {
-            const domains = Array.isArray(rule.group) ? rule.group : rule.group.split(',');
+            const domains = splitGroup(rule.group);
             domains.forEach(d => domainsToDelete.add(d.trim()));
         }
         domainsToDelete.add(key);
@@ -75,7 +76,7 @@ function simulateAggregation() {
     ruleKeysToDelete.forEach(key => {
         const rule = allRules[key];
         if (rule && rule.group) {
-            const domains = Array.isArray(rule.group) ? rule.group : rule.group.split(',');
+            const domains = splitGroup(rule.group);
             domains.forEach(d => {
                 if (d.trim()) deletedDomains++;
             });
@@ -95,7 +96,7 @@ function simulateAggregation() {
         if (domainsToDelete.has(rule.domain)) continue;
 
         if (rule.group) {
-            const domains = Array.isArray(rule.group) ? rule.group : rule.group.split(',');
+            const domains = splitGroup(rule.group);
             domains.forEach(domainStr => {
                 const domain = domainStr.trim();
                 if (!domain || domainsToDelete.has(domain) || processedDomains.has(domain)) return;
@@ -126,7 +127,8 @@ function simulateAggregation() {
 }
 
 async function getStats() {
-    const sourceFiles = ['sites.json', 'sites_updated.json', 'sites_custom.json'];
+    const baseFile = loadFile('sites_latest.json') ? 'sites_latest.json' : 'sites.json';
+    const sourceFiles = [baseFile, 'sites_updated.json', 'sites_custom.json'];
     const aggregatedFiles = ['sites_aggregated.json', 'sites_aggregated.yaml'];
 
     // First rebuild the aggregated files
@@ -134,7 +136,7 @@ async function getStats() {
     const { generateAggregatedJson } = await import('../src/generateAggregatedJson.js');
     const { convertJsonToYaml } = await import('../src/convertJsonToYaml.js');
 
-    const sites = loadFile('sites.json');
+    const sites = loadFile(baseFile);
     const sitesUpdated = loadFile('sites_updated.json');
     const sitesCustom = loadFile('sites_custom.json');
 
@@ -144,7 +146,7 @@ async function getStats() {
     }
 
     const aggregatedJson = generateAggregatedJson(sites, sitesUpdated, sitesCustom);
-    const aggregatedYaml = convertJsonToYaml(aggregatedJson, '4.2.1.1');
+    const aggregatedYaml = convertJsonToYaml(aggregatedJson);
 
     // Save to local folder
     const fs = await import('fs');
@@ -155,11 +157,7 @@ async function getStats() {
     fs.writeFileSync(path.join(localDir, 'sites_aggregated.yaml'), aggregatedYaml);
     console.log('Aggregated files updated in /local folder\n');
 
-    const allRules = {
-        ...JSON.parse(sites),
-        ...JSON.parse(sitesUpdated),
-        ...JSON.parse(sitesCustom)
-    };
+    const allRules = mergeRulesByPrecedence([JSON.parse(sites), JSON.parse(sitesUpdated), JSON.parse(sitesCustom)]);
 
     let totalStats = {
         singleDomains: 0,
@@ -194,7 +192,7 @@ async function getStats() {
             } else if (rule.domain && rule.domain.startsWith('###_') && !rule.group) {
                 const groupDef = Object.values(allRules).find(r => r.domain === rule.domain && r.group);
                 if (groupDef) {
-                    const domains = Array.isArray(groupDef.group) ? groupDef.group : groupDef.group.split(',');
+                    const domains = splitGroup(groupDef.group);
                     stats.groupDomainDeletions++;
                     stats.totalDeletedDomains += domains.length;
                 }
@@ -206,16 +204,16 @@ async function getStats() {
                     const matchedRule = matchingKey ? allRules[matchingKey] : null;
 
                     if (matchedRule && matchedRule.group) {
-                        const groupDomains = Array.isArray(matchedRule.group) ? matchedRule.group : matchedRule.group.split(',');
+                        const groupDomains = splitGroup(matchedRule.group);
                         stats.groupDomainDeletions++;
-                        stats.totalDeletedDomains += domains.length;
+                        stats.totalDeletedDomains += groupDomains.length;
                     } else {
                         stats.singleDomainDeletions++;
                         stats.totalDeletedDomains++;
                     }
                 });
             } else if (rule.group) {
-                const domains = Array.isArray(rule.group) ? rule.group : rule.group.split(',');
+                const domains = splitGroup(rule.group);
                 stats.groupDomains += domains.length;
                 stats.totalDomains += domains.length;
             } else {
@@ -249,35 +247,23 @@ async function getStats() {
     console.log(`  Total deleted domains: ${chalk.hex('#FFA500')(totalStats.totalDeletedDomains)}`);
     console.log('\n');
 
-    // Show clear step-by-step balance using actual aggregation results
     const actualFinal = JSON.parse(loadFile('sites_aggregated.json') || '[]').length;
+    const simulated = simulateAggregation();
+    const mergedRuleCount = Object.keys(allRules).length;
+    const rawSourceCount = sourceFiles.reduce((count, fileName) => {
+        const rules = JSON.parse(loadFile(fileName) || '{}');
+        return count + Object.keys(rules).length;
+    }, 0);
+    const duplicateRuleCount = rawSourceCount - mergedRuleCount;
 
     console.log(`--- How Domain Numbers Balance ---`);
-    console.log(`  📊 SOURCE FILES (raw counts from each file):`);
-    console.log(`     sites.json: ${chalk.hex('#FFA500')(900)} domains (${chalk.hex('#FFA500')(440)} single + ${chalk.hex('#FFA500')(460)} in groups)`);
-    console.log(`     sites_updated.json: ${chalk.hex('#FFA500')(22)} domains (${chalk.hex('#FFA500')(11)} single + ${chalk.hex('#FFA500')(11)} in groups)`);
-    console.log(`     sites_custom.json: ${chalk.hex('#FFA500')(344)} domains (${chalk.hex('#FFA500')(275)} single + ${chalk.hex('#FFA500')(69)} in groups)`);
-    console.log(`     = ${chalk.hex('#FFA500')(1266)} total domains across all source files (includes duplicates)`);
-
-    console.log(`  🔄 PRECEDENCE MERGE (custom > updated > base):`);
-    console.log(`     Removes ${chalk.hex('#FFA500')(23)} duplicate domains that appear in multiple files`);
-    console.log(`     = ${chalk.hex('#FFA500')(1243)} unique domains after merge`);
-
-    console.log(`  🗑️  RULE-LEVEL DELETIONS:`);
-    console.log(`     Removes ${chalk.hex('#FFA500')(10)} entire rules marked for deletion`);
-    console.log(`     This affects ${chalk.hex('#FFA500')(8)} domains contained in those rules`);
-    console.log(`     = ${chalk.hex('#FFA500')(1235)} domains remaining after rule deletions`);
-
-    console.log(`  📈 GROUP EXPANSION + FINAL FILTERING:`);
-    console.log(`     Expands remaining group rules into individual domain rules`);
-    console.log(`     Applies domain-level filtering (removes any remaining deleted domains)`);
-    console.log(`     Preserves ${chalk.hex('#FFA500')(1)} important settings rule (not counted in source domains)`);
-    console.log(`     = ${chalk.hex('#FFA500')(1281)} final rules in aggregated output`);
-
-    console.log(`  ✅ BALANCE SUMMARY:`);
-    console.log(`     ${chalk.hex('#FFA500')(1266)} source domains - ${chalk.hex('#FFA500')(23)} duplicates - ${chalk.hex('#FFA500')(8)} deleted + ${chalk.hex('#FFA500')(1)} preserved settings = ${chalk.hex('#FFA500')(1236)}`);
-    console.log(`     Group expansion adds ${chalk.hex('#FFA500')(45)} individual rules from remaining groups`);
-    console.log(`     = ${chalk.hex('#FFA500')(1281)} final rules (perfect balance!)`);
+    console.log(`  Source domains after per-file counting: ${chalk.hex('#FFA500')(totalStats.totalDomains)}`);
+    console.log(`  Raw source rules: ${chalk.hex('#FFA500')(rawSourceCount)}`);
+    console.log(`  Duplicate rule keys removed by precedence: ${chalk.hex('#FFA500')(duplicateRuleCount)}`);
+    console.log(`  Merged rule keys: ${chalk.hex('#FFA500')(mergedRuleCount)}`);
+    console.log(`  Domains marked for deletion: ${chalk.hex('#FFA500')(simulated.deletedDomains)}`);
+    console.log(`  Final simulated domains: ${chalk.hex('#FFA500')(simulated.finalDomains)}`);
+    console.log(`  Final aggregated rules: ${chalk.hex('#FFA500')(actualFinal)}`);
     console.log('\n');
 
     for (const fileName of aggregatedFiles) {

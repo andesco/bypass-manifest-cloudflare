@@ -42,7 +42,7 @@ async function main() {
   const BASE_DIR = answers.uploadsDir;
   const LOCAL_DIR = answers.localDir;
   const WORK_DIR = path.join(BASE_DIR, '_extracted');
-  const fileTypes = ['sites.js', 'sites.json', 'sites_updated.json', 'sites_custom.json'];
+  const fileTypes = ['sites.js', 'sites.json', 'sites_latest.js', 'sites_latest.json', 'sites_updated.json', 'sites_custom.json'];
   const searchOption = fileTypes.join(', ');
 
   // Extract archives if _extracted does not exist

@@ -93,7 +93,7 @@ async function audit() {
     const { generateAggregatedJson } = await import('../src/generateAggregatedJson.js');
     const { convertJsonToYaml } = await import('../src/convertJsonToYaml.js');
 
-    const sites = loadJson('sites.json');
+    const sites = loadJson('sites_latest.json') || loadJson('sites.json');
     const sitesUpdated = loadJson('sites_updated.json');
     const sitesCustom = loadJson('sites_custom.json');
 

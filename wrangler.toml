@@ -1,8 +1,12 @@
 name = "bypass-manifest-cloudflare"
 main = "src/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-05-27"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
-account_id = "" # your Cludflare account ID
+
+[observability]
+enabled = true
+head_sampling_rate = 1
 
 # [[routes]]
 # pattern = "bypass.example.com"
@@ -17,3 +21,4 @@ binding = "Bypass_KV"
 
 [vars]
 GIT_REPOSITORY_URL = "" # https://git.net/project/{username}/{repository}
+PUBLIC_BASE_URL = "https://bypass.andrewe.dev"
