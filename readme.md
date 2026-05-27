@@ -63,8 +63,9 @@ These files are extracted from the latest Chrome `.crx` referenced in `updates.x
 
 **5. `sites_aggregated.json`**
 - generated file: aggregated ruleset from above `JSON` files
+- precedence: `sites_custom.json` > `sites_updated.json` > `sites_latest.json`
 - version: matches the highest version of source `JSON` files
-- cron: when `sites_updated.json` or `sites_custom.json` are updated, the aggregated file is regenerated.
+- cron: regenerated after source files are fetched, converted, and validated.
 
 **6. `sites_aggregated.yaml`**
 - generated file:
@@ -96,6 +97,7 @@ https://git.net/project/{username}/{repository}
 | `SITES_UPDATED_JSON` | URL to `sites_updated.json` |
 | `SITES_CUSTOM_JSON`  | URL to `sites_custom.json` |
 | `MANIFEST_JSON`      | URL to `manifest.json` |
+| `PUBLIC_BASE_URL`    | Public origin used when generating served URLs in `manifest.json` |
 
 Point to a file within a git-hosted repository using its unique **`Raw`** link:
 
@@ -104,6 +106,8 @@ Point to a file within a git-hosted repository using its unique **`Raw`** link:
 ## Worker Functionality
 
 The Cloudflare Worker manages and serves several files, ensuring they are kept up-to-date with the latest versions from the upstream repositories.
+
+Updates are staged before KV is changed. The Worker fetches sources, extracts archives, converts `sites.js` to JSON, validates all rule objects, generates aggregate artifacts, and only then writes the new KV values and version metadata. If a source is invalid, the previous served artifacts remain in place and `/health` reports the error.
 
 ### File Storage
 
@@ -119,4 +123,3 @@ The worker updates the files through two mechanisms:
    2. **Manual Updates**: \
    The update process can be manually initiated by sending a request to the endpoint: \
    `/initiate-update`
-

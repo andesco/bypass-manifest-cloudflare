@@ -5,8 +5,11 @@ import path from 'path';
 const filesToDownload = [
     'sites.js',
     'sites.json',
+    'sites_latest.js',
+    'sites_latest.json',
     'sites_updated.json',
     'sites_custom.json',
+    'sites_aggregated.js',
     'sites_aggregated.json',
     'sites_aggregated.yaml',
     'manifest.json'

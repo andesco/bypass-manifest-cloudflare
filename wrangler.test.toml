@@ -1,0 +1,11 @@
+name = "bypass-manifest-cloudflare-test"
+main = "src/index.js"
+compatibility_date = "2025-04-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[kv_namespaces]]
+binding = "Bypass_KV"
+id = "test-bypass-kv"
+
+[vars]
+GIT_REPOSITORY_URL = ""
