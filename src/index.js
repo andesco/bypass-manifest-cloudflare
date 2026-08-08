@@ -7,6 +7,8 @@ import { convertJsonToYaml } from './convertJsonToYaml.js';
 import { getHighestUpdVersion, getHighestVersion } from './versions.js';
 import { ROUTES_BY_PATH, SERVED_FILES } from './routes.js';
 import { getPublicBaseUrl, getSourceUrls, SOURCE_METADATA_KEYS } from './sources.js';
+import { getTestRoute, NO_STORE } from './testPages.js';
+import { getWorkerTestRule, TEST_RULE_DOMAIN, TEST_RULE_TITLE, WORKER_TEST_RULES } from './testRules.js';
 import { parseChromeUpdatesXml, parseFirefoxUpdatesJson } from './updateSources.js';
 import { validateAggregatedJson, validateRulesJson } from './validation.js';
 
@@ -35,6 +37,34 @@ export default {
 
     if (url.pathname === '/health') {
       return Response.json(await buildHealthReport(env));
+    }
+
+    if (url.pathname === '/test/rule.json') {
+      return Response.json(await buildTestRuleReport(env), {
+        headers: { 'Cache-Control': NO_STORE },
+      });
+    }
+
+    if (url.pathname === '/test/echo') {
+      return Response.json({
+        headers: {
+          'user-agent': request.headers.get('user-agent'),
+          referer: request.headers.get('referer'),
+          'x-bypass-test': request.headers.get('x-bypass-test'),
+        },
+      }, {
+        headers: { 'Cache-Control': NO_STORE },
+      });
+    }
+
+    const testRoute = getTestRoute(url.pathname);
+    if (testRoute) {
+      return new Response(testRoute.body, {
+        headers: {
+          'Content-Type': testRoute.contentType,
+          'Cache-Control': NO_STORE,
+        },
+      });
     }
 
     const route = ROUTES_BY_PATH.get(url.pathname);
@@ -205,7 +235,9 @@ async function buildUpdatePlan(env, forceUpdate, log) {
     };
   }
 
-  const aggregateInputs = [chrome.json, sitesUpdated.text, sitesCustom.text];
+  // Keep the test rule out of mirrored sources while making it available in
+  // the aggregate consumed by the extension on the Worker test host.
+  const aggregateInputs = [chrome.json, sitesUpdated.text, sitesCustom.text, WORKER_TEST_RULES];
   const sitesJsTemplate = chrome.js || firefox.js;
   if (!chrome.json || !sitesUpdated.text || !sitesCustom.text) {
     throw new Error('Missing source files required for aggregation.');
@@ -264,6 +296,30 @@ async function commitStagedUpdate(env, staged) {
     if (write.value === null || write.value === undefined) continue;
     await env.Bypass_KV.put(write.key, write.value);
   }
+}
+
+async function buildTestRuleReport(env) {
+  const expectedRule = getWorkerTestRule();
+  const aggregateRaw = await env.Bypass_KV.get('sites_aggregated_json');
+  let aggregateRule = null;
+  let aggregateError = null;
+
+  if (aggregateRaw) {
+    try {
+      const aggregate = JSON.parse(aggregateRaw);
+      aggregateRule = aggregate.find(rule => rule?.domain === TEST_RULE_DOMAIN) || null;
+    } catch (error) {
+      aggregateError = String(error?.message || error);
+    }
+  }
+
+  return {
+    domain: TEST_RULE_DOMAIN,
+    title: TEST_RULE_TITLE,
+    injected_into_aggregate: Boolean(aggregateRule),
+    aggregate_error: aggregateError,
+    rule: aggregateRule || expectedRule,
+  };
 }
 
 async function fetchAndConvertArchive(url, archiveType, label, log) {

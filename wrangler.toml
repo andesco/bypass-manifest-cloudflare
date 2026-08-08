@@ -17,7 +17,7 @@ crons = ["0 */6 * * *"]
 
 [[kv_namespaces]]
 binding = "Bypass_KV"
-# id = ""
+id = "your-kv-namespace-id"
 
 [vars]
 GIT_REPOSITORY_URL = "" # https://git.net/project/{username}/{repository}

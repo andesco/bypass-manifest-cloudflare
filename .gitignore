@@ -39,7 +39,8 @@ wrangler.local.toml
 
 .vscode/
 local/
-test/
+test/*
+!test/index.spec.js
 
 # LLM
 

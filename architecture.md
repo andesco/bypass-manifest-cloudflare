@@ -24,7 +24,7 @@ Cloudflare Worker (updateFiles)
       - XPI -> sites.js -> sites.json
       - CRX -> sites_latest.js -> sites_latest.json
   - Aggregate:
-      - sites_latest.json + sites_updated.json + sites_custom.json -> sites_aggregated.*
+      - sites_latest.json + sites_updated.json + sites_custom.json + Worker test rule -> sites_aggregated.*
   - Validate staged artifacts
   - Write artifacts + status keys to KV
         |
@@ -43,7 +43,7 @@ Public HTTP API (read-through from KV + computed /health)
 4. If the Firefox version changed (or forced), Worker downloads the XPI, extracts `sites.js`, stores `sites_js`, and stores the JSON conversion as `sites`.
 5. If the Chrome version changed (or forced), Worker downloads the CRX, extracts the ZIP payload, extracts `sites.js`, stores it as `sites_latest_js`, and stores the JSON conversion as `sites_latest_json`.
 6. If the upstream manifest version changed (or forced), Worker refreshes `sites_updated.json` (stored as `sites_updated`) and `sites_custom.json` (stored as `sites_custom`).
-7. Worker generates `sites_aggregated_json` using `sites_latest_json` + `sites_updated` + `sites_custom` (groups expanded), `sites_aggregated_js` using the same inputs (groups not expanded; regex literals re-emitted), and `sites_aggregated_yaml` derived from `sites_aggregated_json`.
+7. Worker generates `sites_aggregated_json` using `sites_latest_json` + `sites_updated` + `sites_custom` + the Worker-scoped `bypass.example.com` test rule (groups expanded), `sites_aggregated_js` using the same inputs (groups not expanded; regex literals re-emitted), and `sites_aggregated_yaml` derived from `sites_aggregated_json`.
 8. Worker validates generated artifacts, writes a Worker-generated `/manifest.json` to KV key `manifest`, and updates `last_*`, `meta:source:*`, and `log:info` status keys.
 
 ## Public Endpoints
@@ -61,6 +61,9 @@ Public HTTP API (read-through from KV + computed /health)
 | `GET /sites_aggregated.yaml` | `text/yaml; charset=utf-8` | `sites_aggregated_yaml` | YAML derived from aggregated JSON |
 | `GET /manifest.json` | `application/json` | `manifest` | Worker-generated manifest of served URLs + versions |
 | `GET /health` | `application/json` | (computed) | Status report derived from multiple KV keys |
+| `GET /test` | `text/html` | (computed) | Consolidated browser test-suite dashboard |
+| `GET /test/rule.json` | `application/json` | (computed) | Test rule and aggregate-injection status |
+| `GET /test/echo` | `application/json` | (computed) | Selected request headers observed by the Worker |
 
 ## Source Files
 
@@ -84,8 +87,8 @@ Public HTTP API (read-through from KV + computed /health)
 | `sites.json` | `sites.js` via AST conversion | No | strings: `"pattern"` |
 | `sites_latest.js` | Extracted from CRX | No | JS literals: `/pattern/` |
 | `sites_latest.json` | `sites_latest.js` via AST conversion | No | strings: `"pattern"` |
-| `sites_aggregated.json` | `sites_latest.json` + `sites_updated.json` + `sites_custom.json` | **Yes** | strings |
-| `sites_aggregated.js` | `sites_latest.json` + `sites_updated.json` + `sites_custom.json` (no expansion) | **No** | re-emitted JS literals |
+| `sites_aggregated.json` | `sites_latest.json` + `sites_updated.json` + `sites_custom.json` + Worker test rule | **Yes** | strings |
+| `sites_aggregated.js` | `sites_latest.json` + `sites_updated.json` + `sites_custom.json` + Worker test rule (no expansion) | **No** | re-emitted JS literals |
 | `sites_aggregated.yaml` | `sites_aggregated.json` | **Yes** | strings |
 
 ## Aggregation Pipeline
@@ -100,7 +103,7 @@ sites_updated.json (middle — upstream update overrides)
 sites_latest.json  (lowest — base rules extracted from Chrome CRX)
 ```
 
-Implemented through shared aggregation helpers as a shallow key merge. Keys in later objects replace earlier ones entirely (no deep merge). Worker code and local scripts use the same helpers so audits and stats match production behavior.
+Implemented through shared aggregation helpers as a shallow key merge. Keys in later objects replace earlier ones entirely (no deep merge). Worker code and local scripts use the same helpers for upstream sources; the Worker then appends its isolated test rule to the served aggregate.
 
 ### `generateAggregatedJson()` — the primary aggregation
 

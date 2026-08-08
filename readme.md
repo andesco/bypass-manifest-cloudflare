@@ -123,3 +123,16 @@ The worker updates the files through two mechanisms:
    2. **Manual Updates**: \
    The update process can be manually initiated by sending a request to the endpoint: \
    `/initiate-update`
+
+### Browser Test Suite
+
+The Worker adds a test-only rule for `bypass.example.com` to the aggregated artifacts. It is not written into the mirrored `sites.js`, `sites_latest.json`, `sites_updated.json`, or `sites_custom.json` sources.
+
+Visit `/test` on the deployed Worker to open the consolidated fixture suite. The single page contains four status cards covering:
+
+- DOM cleanup operations
+- request blocking
+- JSON-LD and external-link selectors
+- user-agent, referer, and custom request headers
+
+The page uses green for PASS, red for FAIL, and black for NEUTRAL/not currently verifiable. The suite is deterministic and does not depend on live third-party article pages.
