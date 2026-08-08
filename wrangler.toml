@@ -19,5 +19,5 @@ binding = "Bypass_KV"
 id = "your-kv-namespace-id"
 
 [vars]
-GIT_REPOSITORY_URL = "" # https://git.net/project/{username}/{repository}
+GIT_REPOSITORY_URL = "https://git.example.com/project/{username}/{repository}/"
 PUBLIC_BASE_URL = "https://bypass.example.com"
