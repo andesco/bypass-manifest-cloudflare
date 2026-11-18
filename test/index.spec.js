@@ -310,6 +310,9 @@ describe('worker routing and updates', () => {
     for (const caseId of ['dom', 'network', 'content', 'headers']) {
       expect(indexHtml).toContain(`data-test-card="${caseId}"`);
     }
+    // The four case cards come before the less important "Rule status" panel.
+    expect(indexHtml.indexOf('aria-label="Test cases"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
+    expect(indexHtml.lastIndexOf('data-test-card="headers"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
 
     for (const path of ['/test/dom', '/test/network', '/test/content', '/test/headers']) {
       const response = await worker.fetch(

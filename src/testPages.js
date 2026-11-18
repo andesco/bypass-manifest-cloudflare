@@ -4,37 +4,59 @@ const NO_STORE = 'no-store, max-age=0';
 
 const PAGE_STYLES = `
   :root { font-family: system-ui, sans-serif; background: #f4f4f4; color: #111; }
-  body { max-width: 68rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; line-height: 1.5; }
+  body { max-width: 88rem; margin: 0 auto; padding: 1rem 1rem 3rem; line-height: 1.45; }
   a { color: #111; font-weight: 650; }
   code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre { overflow: auto; padding: 1rem; background: #111; color: #fff; border-radius: .5rem; }
   h1, h2, h3 { line-height: 1.2; }
   .notice, .legend, .rule-panel { padding: 1rem; border: 2px solid #111; border-radius: .5rem; background: #fff; }
-  .legend { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+  .page-head { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; justify-content: space-between; margin-bottom: .25rem; }
+  .page-head h1 { margin: 0; }
+  .page-intro { margin: 0; }
+  .page-nav { margin: 0 0 .5rem; }
+  .legend { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .5rem .75rem; }
+  .rule-panel { margin-top: 1.5rem; }
+  .rule-panel h2 { margin-top: 0; }
+  .rule-panel pre { max-height: 14rem; overflow: auto; margin-bottom: 0; }
   .status-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 5.5rem; padding: .35rem .65rem; border-radius: 999px; color: #fff; font-size: .78rem; font-weight: 800; letter-spacing: .04em; }
-  .status-pass { background: #16803c; color: #fff; }
-  .status-fail { background: #c62828; color: #fff; }
-  .status-neutral { background: #111; color: #fff; }
-  .summary { display: flex; gap: 1rem; align-items: center; margin: 1rem 0; padding: 1rem; border: 4px solid #111; border-radius: .75rem; background: #fff; }
+  .status-badge.status-pass { background: #16803c; }
+  .status-badge.status-fail { background: #c62828; }
+  .status-badge.status-neutral { background: #111; }
+  .summary { display: flex; gap: 1rem; align-items: center; margin: .75rem 0; padding: .75rem 1rem; border: 4px solid #111; border-radius: .75rem; background: #fff; }
   .summary.status-pass { border-color: #16803c; }
   .summary.status-fail { border-color: #c62828; }
   .summary.status-neutral { border-color: #111; }
-  .summary h2 { margin: 0; }
+  .summary h2 { margin: 0; font-size: 1.15rem; }
   .summary p { margin: .25rem 0 0; }
-  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; margin-top: 1rem; }
-  .test-card { padding: 1rem; border: 4px solid #111; border-radius: .75rem; background: #fff; }
+  /* One column on phones; a 2x2 grid from tablet width up so four cards never leave one orphaned on its own row. */
+  .cases { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; margin: .75rem 0; }
+  @media (min-width: 44rem) {
+    .cases { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  /* Wide cards: fixture on the left, results on the right, to keep each card short. */
+  .case-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; align-items: start; }
+  @media (min-width: 70rem) {
+    .case-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .test-card { padding: .75rem 1rem 1rem; border: 4px solid #111; border-radius: .75rem; background: #fff; }
   .test-card.status-pass { border-color: #16803c; }
   .test-card.status-fail { border-color: #c62828; }
   .test-card.status-neutral { border-color: #111; }
   .case-heading { display: flex; gap: .75rem; justify-content: space-between; align-items: flex-start; }
   .case-heading h2 { margin: 0; }
-  .case-heading p { margin: .45rem 0 0; }
-  .case-fields { color: #111; font-size: .9rem; }
-  .fixture { margin: 1rem 0; padding: 1rem; border: 2px dashed #111; background: #fafafa; }
-  .test-paywall { background: #8b0000; color: #fff; padding: .75rem; }
-  .test-hidden { padding: .75rem; background: #554400; }
-  .checks { display: grid; gap: .5rem; padding: 0; margin: 1rem 0 0; list-style: none; }
-  .check-row { padding: .5rem .65rem; border-left: .45rem solid #111; background: #f4f4f4; }
+  .case-heading p { margin: .25rem 0 0; }
+  .case-heading h2 { font-size: 1.25rem; }
+  .case-fields { color: #111; font-size: .85rem; margin: .5rem 0; }
+  .fixture { margin: 0 0 .5rem; padding: .6rem .75rem; border: 2px dashed #111; background: #fafafa; }
+  .test-paywall { background: #8b0000; color: #fff; padding: .5rem .75rem; }
+  .test-hidden { padding: .5rem .75rem; background: #554400; }
+  .case-fixtures { font-size: .9rem; }
+  .case-fixtures article { margin: 0 0 .5rem; }
+  .case-fixtures h3 { margin: 0 0 .15rem; font-size: 1rem; }
+  .case-fixtures p { margin: 0 0 .35rem; }
+  .case-fixtures p:last-child { margin-bottom: 0; }
+  .checks { display: grid; gap: .4rem; padding: 0; margin: 0; list-style: none; }
+  .check-row { padding: .4rem .6rem; font-size: .9rem; border-left: .45rem solid #111; background: #f4f4f4; }
   .check-row.status-pass { border-left-color: #16803c; }
   .check-row.status-fail { border-left-color: #c62828; }
   .check-row.status-neutral { border-left-color: #111; }
@@ -72,15 +94,15 @@ const CASE_DEFINITIONS = [
   {
     id: 'content',
     title: 'Content and link selectors',
-    description: 'Provides JSON-LD and paywall/content selectors for ld_json and add_ext_link.',
+    description: 'Verifies JSON-LD extraction and the external-link fallback.',
     fields: 'ld_json, add_ext_link',
     body: `
       <div class="fixture" id="test-jsonld-paywall">This is the synthetic paywall marker.</div>
       <article id="test-jsonld-content">
         <h3>Fixture article</h3>
-        <p>This is deterministic article content for the extraction test.</p>
+        <p>This locked article shell should be replaced by the JSON-LD body.</p>
         <script type="application/ld+json">
-          {"@context":"https://schema.org","@type":"NewsArticle","headline":"Fixture article","articleBody":"Deterministic fixture content"}
+          {"@context":"https://schema.org","@type":"NewsArticle","headline":"Fixture article","articleBody":"JSON-LD extracted fixture content"}
         </script>
       </article>
       <div class="fixture" id="test-link-paywall">This is the synthetic link paywall marker.</div>
@@ -113,10 +135,12 @@ function renderCaseCards() {
         <span id="status-${testCase.id}" class="status-badge status-neutral">NEUTRAL</span>
       </div>
       <p class="case-fields"><strong>Rule fields:</strong> <code>${testCase.fields}</code></p>
-      ${testCase.body}
-      <ul id="checks-${testCase.id}" class="checks">
-        <li class="check-row status-neutral"><strong>NEUTRAL</strong><span class="check-detail">Waiting for the Worker rule and extension.</span></li>
-      </ul>
+      <div class="case-main">
+        <div class="case-fixtures">${testCase.body}</div>
+        <ul id="checks-${testCase.id}" class="checks">
+          <li class="check-row status-neutral"><strong>NEUTRAL</strong><span class="check-detail">Waiting for the Worker rule and extension.</span></li>
+        </ul>
+      </div>
     </article>`).join('');
 }
 
@@ -130,14 +154,16 @@ function renderSuite() {
     <style>${PAGE_STYLES}</style>
   </head>
   <body>
-    <p><a href="/health">Worker health</a> · <a href="/manifest.json">Artifact manifest</a> · <a href="/sites_aggregated.json">Aggregated rules</a></p>
-    <h1>Bypass Manifest test suite</h1>
-    <p>This single page exercises the Worker-hosted <code>${TEST_RULE_DOMAIN}</code> rule. Green is good, red is bad, and black is neutral/not currently verifiable.</p>
-    <div class="legend" aria-label="Status legend">
-      <span class="status-badge status-pass">GREEN · PASS</span>
-      <span class="status-badge status-fail">RED · FAIL</span>
-      <span class="status-badge status-neutral">BLACK · NEUTRAL</span>
-    </div>
+    <p class="page-nav"><a href="/health">Worker health</a> · <a href="/manifest.json">Artifact manifest</a> · <a href="/sites_aggregated.json">Aggregated rules</a></p>
+    <header class="page-head">
+      <h1>Bypass Manifest test suite</h1>
+      <div class="legend" aria-label="Status legend">
+        <span class="status-badge status-pass">GREEN · PASS</span>
+        <span class="status-badge status-fail">RED · FAIL</span>
+        <span class="status-badge status-neutral">BLACK · NEUTRAL</span>
+      </div>
+    </header>
+    <p class="page-intro">This single page exercises the Worker-hosted <code>${TEST_RULE_DOMAIN}</code> rule. Green is good, red is bad, and black is neutral/not currently verifiable.</p>
 
     <section id="test-summary" class="summary status-neutral" aria-live="polite">
       <span id="test-summary-badge" class="status-badge status-neutral">NEUTRAL</span>
@@ -147,13 +173,13 @@ function renderSuite() {
       </div>
     </section>
 
+    <section class="cases" aria-label="Test cases">
+      ${renderCaseCards()}
+    </section>
+
     <section class="rule-panel">
       <h2>Rule status</h2>
       <pre id="test-rule">Loading ${TEST_RULE_TITLE}…</pre>
-    </section>
-
-    <section class="cases" aria-label="Test cases">
-      ${renderCaseCards()}
     </section>
 
     <p class="footer-links">All fixtures are same-origin and deterministic. Enable the extension, refresh this page, and wait for the statuses to settle.</p>
@@ -215,10 +241,7 @@ function renderSuite() {
       }
 
       function hasExtensionEffect(observations) {
-        return observations.dom.some(check => check.state === 'pass')
-          || observations.network.some(check => check.state === 'pass')
-          || observations.content.some(check => check.effect)
-          || observations.headers.some(check => check.state === 'pass');
+        return Object.values(observations).some(checks => checks.some(check => check.effect));
       }
 
       function stripEffectFlag(checks) {
@@ -240,9 +263,13 @@ function renderSuite() {
         const style = document.querySelector('#test-dom-style');
         const classTarget = document.querySelector('#test-dom-class');
         const hiddenByStyle = hidden && getComputedStyle(hidden).display === 'none';
+        const jsonLdPaywall = document.querySelector('#test-jsonld-paywall');
+        const jsonLdTarget = document.querySelector('#test-jsonld-content');
+        const jsonLdScript = document.querySelector('#test-jsonld-content script[type="application/ld+json"]');
+        const jsonLdBody = document.body && document.body.innerText.includes('JSON-LD extracted fixture content');
         const linkTarget = document.querySelector('#test-link-content');
-        const jsonLd = document.querySelector('#test-jsonld-content script[type="application/ld+json"]');
-        const insertedLinks = linkTarget ? linkTarget.querySelectorAll('a').length : 0;
+        const linkPaywall = document.querySelector('#test-link-paywall');
+        const insertedLinks = linkTarget ? linkTarget.querySelectorAll('a[href*="search.google.com/test/rich-results"]').length : 0;
 
         const echoResponse = await fetch('/test/echo', { cache: 'no-store' });
         const echo = await echoResponse.json();
@@ -259,9 +286,8 @@ function renderSuite() {
             { state: window.__bypassTestBlockedScriptExecuted === true ? 'fail' : 'pass', label: 'block_regex prevented the fixture script from executing', detail: String(window.__bypassTestBlockedScriptExecuted), effect: window.__bypassTestBlockedScriptExecuted !== true },
           ],
           content: [
-            { state: 'neutral', label: 'JSON-LD fixture is present', detail: jsonLd ? 'fixture present' : 'fixture missing', effect: false },
-            { state: 'neutral', label: 'article fixture remains available', detail: document.querySelector('#test-jsonld-content') ? 'fixture present' : 'fixture missing', effect: false },
-            { state: insertedLinks > 0 ? 'pass' : 'fail', label: 'add_ext_link inserted a link into the target', detail: String(insertedLinks) + ' link(s) found', effect: insertedLinks > 0 },
+            { state: !jsonLdPaywall && !jsonLdTarget && !jsonLdScript && jsonLdBody ? 'pass' : 'fail', label: 'ld_json replaced the locked article with JSON-LD content', detail: jsonLdBody ? 'extracted body present' : 'extracted body missing', effect: !jsonLdPaywall && !jsonLdTarget && !jsonLdScript && jsonLdBody },
+            { state: !linkPaywall && insertedLinks > 0 ? 'pass' : 'fail', label: 'add_ext_link removed the marker and inserted a link', detail: String(insertedLinks) + ' Google link(s) found', effect: !linkPaywall && insertedLinks > 0 },
           ],
           headers: [
             { state: /googlebot/i.test(headers['user-agent'] || '') ? 'pass' : 'fail', label: 'useragent sent a Googlebot user agent', detail: headers['user-agent'] || 'missing', effect: /googlebot/i.test(headers['user-agent'] || '') },
@@ -292,6 +318,25 @@ function renderSuite() {
           return;
         }
 
+        const rule = report.rule || {};
+        const ruleErrors = [];
+        if (rule.domain !== '${TEST_RULE_DOMAIN}') ruleErrors.push('domain');
+        if (rule.allow_cookies !== 1) ruleErrors.push('allow_cookies');
+        if (rule.block_regex !== '/test/assets/blocked-script.js') ruleErrors.push('block_regex');
+        if (rule.useragent !== 'googlebot') ruleErrors.push('useragent');
+        if (rule.referer !== 'google') ruleErrors.push('referer');
+        if (rule.headers_custom?.['x-bypass-test'] !== 'worker-rule') ruleErrors.push('headers_custom');
+        if (rule.cs_dompurify !== 1 || !Array.isArray(rule.cs_code)) ruleErrors.push('cs_code');
+        if (rule.add_ext_link !== '#test-link-paywall|#test-link-content' || rule.add_ext_link_type !== 'google_search_tool') ruleErrors.push('add_ext_link');
+        if (rule.ld_json !== '#test-jsonld-paywall|#test-jsonld-content') ruleErrors.push('ld_json');
+        if (!Array.isArray(rule.remove_cookies_select_drop) || !rule.remove_cookies_select_drop.includes('bypass_manifest_test')) ruleErrors.push('remove_cookies_select_drop');
+        if (ruleErrors.length) {
+          const reason = 'Worker test rule does not match the fixture contract: ' + ruleErrors.join(', ');
+          for (const caseId of ['dom', 'network', 'content', 'headers']) renderCase(caseId, 'fail', [failCheck('fixture rule contract', reason)]);
+          setOverall('fail', 'FAIL · fixture rule mismatch', reason);
+          return;
+        }
+
         if (!report.injected_into_aggregate) {
           neutralize({
             dom: [neutralCheck('DOM cleanup', 'test rule is not in the aggregate')],
@@ -304,7 +349,19 @@ function renderSuite() {
 
         let observations;
         try {
-          observations = await collectObservations();
+          // background.js schedules custom DOM work one second after Safari
+          // reports the page. Give that work time to settle, then retry once
+          // more for devices where tabs.onUpdated arrives late.
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          for (let attempt = 0; attempt < 6; attempt++) {
+            observations = await collectObservations();
+            if (hasExtensionEffect(observations)) {
+              await new Promise(resolve => setTimeout(resolve, 400));
+              observations = await collectObservations();
+              break;
+            }
+            if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 500));
+          }
         } catch (error) {
           setOverall('fail', 'FAIL · fixture checks could not run', error.message);
           return;
@@ -325,7 +382,7 @@ function renderSuite() {
         setOverall(failures ? 'fail' : 'pass', failures ? 'FAIL · some checks failed' : 'PASS · all active checks passed', failures ? failures + ' case(s) need attention.' : 'The Worker rule is present and the extension applied it successfully.');
       }
 
-      window.addEventListener('load', () => setTimeout(runSuite, 900));
+      window.addEventListener('load', () => setTimeout(runSuite, 100));
     </script>
   </body>
 </html>`);
