@@ -8,7 +8,9 @@ export const WORKER_TEST_RULES = {
   [TEST_RULE_TITLE]: {
     domain: TEST_RULE_DOMAIN,
     allow_cookies: 1,
-    block_regex: '\\/test\\/assets\\/blocked-script\\.js',
+    // Keep this pattern simple enough for Safari's DNR adapter to lower it to
+    // a urlFilter; Safari rejects rules that remain regexFilter rules.
+    block_regex: '/test/assets/blocked-script.js',
     useragent: 'googlebot',
     referer: 'google',
     headers_custom: {

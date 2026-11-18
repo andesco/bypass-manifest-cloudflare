@@ -59,6 +59,124 @@ describe('aggregation', () => {
     expect(aggregated.find(rule => rule.domain === 'a.example')).toMatchObject({ paywall: true });
     expect(aggregated.find(rule => rule.domain === 'b.example')).toBeUndefined();
   });
+
+  it('resolves group and general-rule exceptions, strips raw exception arrays, interpolates {domain}, and normalizes polymorphic fields', () => {
+    const base = {
+      AdvGroup: {
+        domain: '###_adv_group',
+        group: ['alpha.example.com', 'beta.example.com', 'gamma.example.com', 'delta.example.com'],
+        allow_cookies: 1,
+        block_regex: '(\\.sophi\\.io\\/|reader\\.{domain}\\/banner\\.js)',
+        block_js_inline: 'reader\\.{domain}\\/inline\\/',
+        exception: [
+          {
+            domain: 'alpha.example.com',
+            allow_cookies: 1,
+            useragent: 'googlebot',
+          },
+          {
+            domain: ['beta.example.com', 'gamma.example.com', 'extra-optin.example.com'],
+            allow_cookies: 1,
+            block_regex: '\\.{domain}\\/custom-wall\\.js',
+          },
+        ],
+      },
+      GeneralTownNews: {
+        domain: '###_usa_townnews',
+        block_regex_general: '\\/tncms\\/api\\/access\\.js',
+        cs_dompurify: 1,
+        exception: [
+          {
+            domain: 'eagle.example.com',
+            block_regex_general: '\\.{domain}\\/tncms\\/api\\/access\\.js',
+            useragent: 'googlebot',
+            cs_dompurify: 1,
+          },
+        ],
+      },
+    };
+    const custom = {
+      CustomStringy: {
+        domain: 'custom.example.co.uk',
+        block_regex: '\\.{domain}\\/paywall\\.js',
+        headers_filter: 'x-{domain}',
+        cs_code: '[{"cond":"#paywall","rm_elem":1}]',
+        remove_cookies_select_drop: 'pw_a, pw_b',
+        remove_cookies_select_hold: 'session_id',
+      },
+      DeleteGamma: {
+        domain: 'gamma.example.com',
+        delete: true,
+      },
+    };
+
+    const aggregated = JSON.parse(generateAggregatedJson(
+      JSON.stringify(base),
+      JSON.stringify({}),
+      JSON.stringify(custom)
+    ));
+
+    // Zero leftover group or exception fields anywhere
+    for (const rule of aggregated) {
+      expect(rule).not.toHaveProperty('group');
+      expect(rule).not.toHaveProperty('exception');
+    }
+
+    // String exception domain replaces parent rule cleanly (no inherited block_js_inline)
+    expect(aggregated.find(rule => rule.domain === 'alpha.example.com')).toEqual({
+      domain: 'alpha.example.com',
+      allow_cookies: 1,
+      useragent: 'googlebot',
+    });
+
+    // Array exception domain replaces parent rule and interpolates {domain}
+    expect(aggregated.find(rule => rule.domain === 'beta.example.com')).toEqual({
+      domain: 'beta.example.com',
+      allow_cookies: 1,
+      block_regex: '\\.beta\\.example\\.com\\/custom-wall\\.js',
+    });
+
+    // Exception domain outside group list (opt-in style) is also emitted
+    expect(aggregated.find(rule => rule.domain === 'extra-optin.example.com')).toEqual({
+      domain: 'extra-optin.example.com',
+      allow_cookies: 1,
+      block_regex: '\\.extra-optin\\.example\\.com\\/custom-wall\\.js',
+    });
+
+    // Deleted exception domain is omitted
+    expect(aggregated.find(rule => rule.domain === 'gamma.example.com')).toBeUndefined();
+
+    // Non-excepted group member inherits parent rule with {domain} interpolated
+    expect(aggregated.find(rule => rule.domain === 'delta.example.com')).toEqual({
+      domain: 'delta.example.com',
+      allow_cookies: 1,
+      block_regex: '(\\.sophi\\.io\\/|reader\\.delta\\.example\\.com\\/banner\\.js)',
+      block_js_inline: 'reader\\.delta\\.example\\.com\\/inline\\/',
+    });
+
+    // Non-group ###_* general rule keeps its rule (minus exception) and emits concrete exception domain
+    expect(aggregated.find(rule => rule.domain === '###_usa_townnews')).toEqual({
+      domain: '###_usa_townnews',
+      block_regex_general: '\\/tncms\\/api\\/access\\.js',
+      cs_dompurify: 1,
+    });
+    expect(aggregated.find(rule => rule.domain === 'eagle.example.com')).toEqual({
+      domain: 'eagle.example.com',
+      block_regex_general: '\\.eagle\\.example\\.com\\/tncms\\/api\\/access\\.js',
+      useragent: 'googlebot',
+      cs_dompurify: 1,
+    });
+
+    // Polymorphic custom fields normalized + {domain} interpolated
+    expect(aggregated.find(rule => rule.domain === 'custom.example.co.uk')).toEqual({
+      domain: 'custom.example.co.uk',
+      block_regex: '\\.custom\\.example\\.co\\.uk\\/paywall\\.js',
+      headers_filter: 'x-custom\\.example\\.co\\.uk',
+      cs_code: [{ cond: '#paywall', rm_elem: 1 }],
+      remove_cookies_select_drop: ['pw_a', 'pw_b'],
+      remove_cookies_select_hold: ['session_id'],
+    });
+  });
 });
 
 describe('worker routing and updates', () => {
@@ -193,7 +311,7 @@ describe('worker routing and updates', () => {
     ]);
     expect(aggregated.find(rule => rule.domain === TEST_RULE_DOMAIN)).toMatchObject({
       allow_cookies: 1,
-      block_regex: expect.any(String),
+      block_regex: '/test/assets/blocked-script.js',
       cs_code: expect.any(Array),
       add_ext_link: expect.any(String),
       useragent: 'googlebot',

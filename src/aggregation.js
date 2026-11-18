@@ -62,6 +62,111 @@ export function collectDeletionState(allRules) {
   return { ruleKeysToDelete, domainsToDelete };
 }
 
+const REGEX_PLACEHOLDER_FIELDS = [
+  'block_regex',
+  'block_regex_general',
+  'block_js_inline',
+  'headers_filter',
+];
+
+function isConcreteDomain(domain) {
+  return Boolean(
+    typeof domain === 'string' &&
+    domain &&
+    !isMetadataDomain(domain) &&
+    !domain.startsWith('group_')
+  );
+}
+
+function interpolateDomainPlaceholders(rule) {
+  if (!isConcreteDomain(rule.domain)) return rule;
+  const escapedDomain = rule.domain.replace(/\./g, '\\.');
+
+  for (const field of REGEX_PLACEHOLDER_FIELDS) {
+    const value = rule[field];
+    if (typeof value === 'string' && value.includes('{domain}')) {
+      rule[field] = value.replace(/\{domain\}/g, escapedDomain);
+    } else if (Array.isArray(value)) {
+      rule[field] = value.map(item =>
+        typeof item === 'string' && item.includes('{domain}')
+          ? item.replace(/\{domain\}/g, escapedDomain)
+          : item
+      );
+    }
+  }
+
+  return rule;
+}
+
+function normalizeCsCode(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return value;
+
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') return [parsed];
+  } catch {
+    // Keep original string if not valid JSON
+  }
+  return value;
+}
+
+function normalizeCookieSelectList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  return value;
+}
+
+function finalizeAggregatedRule(rawRule, domainOverride = null) {
+  const finalized = domainOverride ? { ...rawRule, domain: domainOverride } : { ...rawRule };
+  delete finalized.group;
+  delete finalized.exception;
+
+  if ('cs_code' in finalized) {
+    finalized.cs_code = normalizeCsCode(finalized.cs_code);
+  }
+  if ('remove_cookies_select_drop' in finalized) {
+    finalized.remove_cookies_select_drop = normalizeCookieSelectList(finalized.remove_cookies_select_drop);
+  }
+  if ('remove_cookies_select_hold' in finalized) {
+    finalized.remove_cookies_select_hold = normalizeCookieSelectList(finalized.remove_cookies_select_hold);
+  }
+
+  return interpolateDomainPlaceholders(finalized);
+}
+
+function findMatchingException(exceptions, domain) {
+  if (!Array.isArray(exceptions)) return null;
+  return exceptions.find(ex => {
+    if (!ex || typeof ex !== 'object') return false;
+    if (ex.domain === domain) return true;
+    if (Array.isArray(ex.domain)) return ex.domain.map(d => String(d).trim()).includes(domain);
+    return false;
+  }) || null;
+}
+
+function expandExceptionEntries(exceptions, domainsToDelete, finalRules) {
+  if (!Array.isArray(exceptions)) return;
+  for (const ex of exceptions) {
+    if (!ex || typeof ex !== 'object' || !ex.domain) continue;
+    for (const excDomain of splitGroup(ex.domain)) {
+      if (!excDomain || domainsToDelete.has(excDomain) || isMetadataDomain(excDomain)) continue;
+      finalRules[excDomain] = finalizeAggregatedRule(ex, excDomain);
+    }
+  }
+}
+
 export function generateAggregatedArrayFromSources(sources) {
   const allRules = mergeRulesByPrecedence(sources);
   const { ruleKeysToDelete, domainsToDelete } = collectDeletionState(allRules);
@@ -76,22 +181,23 @@ export function generateAggregatedArrayFromSources(sources) {
         if (!domain || domainsToDelete.has(domain)) continue;
         if (isMetadataDomain(domain)) continue;
 
-        const newRule = { ...rule, domain };
-        delete newRule.group;
-        finalRules[domain] = newRule;
+        const matchedException = findMatchingException(rule.exception, domain);
+        finalRules[domain] = finalizeAggregatedRule(matchedException || rule, domain);
       }
 
+      expandExceptionEntries(rule.exception, domainsToDelete, finalRules);
+
       if (rule.domain && !rule.domain.startsWith('###_') && !domainsToDelete.has(rule.domain) && !isMetadataDomain(rule.domain)) {
-        const originalRule = { ...rule };
-        delete originalRule.group;
-        finalRules[originalRule.domain] = originalRule;
+        const matchedSelfException = findMatchingException(rule.exception, rule.domain);
+        finalRules[rule.domain] = finalizeAggregatedRule(matchedSelfException || rule, rule.domain);
       }
       continue;
     }
 
     if (rule.domain) {
-      finalRules[rule.domain] = rule;
+      finalRules[rule.domain] = finalizeAggregatedRule(rule);
     }
+    expandExceptionEntries(rule.exception, domainsToDelete, finalRules);
   }
 
   return Object.values(finalRules).filter(rule => !domainsToDelete.has(rule.domain));
