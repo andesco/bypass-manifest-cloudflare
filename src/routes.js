@@ -78,6 +78,8 @@ export const SERVED_FILES = [
 export const CS_LOCAL_PATH_PREFIX = '/cs_local/';
 export const CS_LOCAL_KV_PREFIX = 'cs_local:';
 export const CS_LOCAL_LIST_KEY = 'cs_local_files';
+// Chrome version the cs_local list was last extracted from; lets an empty list be retried once per version.
+export const CS_LOCAL_VERSION_KEY = 'cs_local_extracted_version';
 export const CS_LOCAL_CONTENT_TYPE = 'application/javascript; charset=utf-8';
 // Matches /cs_local/contentScript_:lang.js, e.g. contentScript_en.js, contentScript_es.pt.js
 export const CS_LOCAL_FILENAME_PATTERN = /^contentScript_[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\.js$/;

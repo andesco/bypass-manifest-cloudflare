@@ -32,6 +32,7 @@ const KV_KEYS = [
   'meta:source:sites_custom',
   'meta:source:aggregate',
   'cs_local_files',
+  'cs_local_extracted_version',
 ];
 
 // Minimal ZIP writer (stored entries) so tests can fake upstream XPI/CRX archives.
@@ -367,6 +368,7 @@ describe('worker routing and updates', () => {
     await env.Bypass_KV.put('last_sites_latest_version', '2.0.0');
     await env.Bypass_KV.put('last_remote_manifest_version', '3.0.0');
     await env.Bypass_KV.put('cs_local_files', '[]');
+    await env.Bypass_KV.put('cs_local_extracted_version', '2.0.0');
     await env.Bypass_KV.put('sites_js', 'var defaultSites = {};');
     await env.Bypass_KV.put('sites', JSON.stringify({ FirefoxOnly: { domain: 'firefox.example' } }));
     await env.Bypass_KV.put('sites_latest_js', 'var defaultSites = {};');
@@ -450,6 +452,7 @@ describe('worker routing and updates', () => {
     await env.Bypass_KV.put('last_sites_latest_version', '2.0.0');
     await env.Bypass_KV.put('last_remote_manifest_version', '3.0.0');
     await env.Bypass_KV.put('cs_local_files', '[]');
+    await env.Bypass_KV.put('cs_local_extracted_version', '2.0.0');
     await env.Bypass_KV.put('sites_js', 'var defaultSites = {};');
     await env.Bypass_KV.put('sites', JSON.stringify({ FirefoxOnly: { domain: 'firefox.example' } }));
     await env.Bypass_KV.put('sites_latest_js', 'var defaultSites = {};');
@@ -593,6 +596,44 @@ describe('worker routing and updates', () => {
       version: '2.0.0',
       files: { 'contentScript_en.js': 'https://public.example/cs_local/contentScript_en.js' },
     });
+  });
+
+  it('retries cs_local extraction when a stored empty list was never extracted for this Chrome version, using the real archive layout', async () => {
+    // Real upstream layout: top-level cs_local/ with an explicit directory entry.
+    const chromeFiles = {
+      'background.js': '// bg',
+      'sites.js': SITES_JS,
+      'cs_local/': '',
+      'cs_local/contentScript_en.js': '// en real layout',
+      'cs_local/contentScript_fi.se.js': '// fi.se real layout',
+    };
+    const fetchMock = stubUpstream({ chromeFiles, firefoxFiles: { 'sites.js': SITES_JS } });
+    const updateEnv = { ...env, GIT_REPOSITORY_URL: 'https://repo.example/project', PUBLIC_BASE_URL: 'https://public.example' };
+
+    // An earlier run left an empty list (e.g. extraction found nothing) with all versions current.
+    await env.Bypass_KV.put('last_sites_version', '1.0.0');
+    await env.Bypass_KV.put('last_sites_latest_version', '2.0.0');
+    await env.Bypass_KV.put('last_remote_manifest_version', '3.0.0');
+    await env.Bypass_KV.put('cs_local_files', '[]');
+    await env.Bypass_KV.put('sites_js', SITES_JS);
+    await env.Bypass_KV.put('sites', JSON.stringify({ Example: { domain: 'example.com' } }));
+    await env.Bypass_KV.put('sites_latest_js', SITES_JS);
+    await env.Bypass_KV.put('sites_latest_json', JSON.stringify({ Example: { domain: 'example.com' } }));
+    await env.Bypass_KV.put('sites_updated', JSON.stringify({ Updated: { domain: 'updated.example', upd_version: '2.1.0' } }));
+    await env.Bypass_KV.put('sites_custom', JSON.stringify({ Custom: { domain: 'custom.example' } }));
+
+    expect((await updateFiles(updateEnv)).status).toBe('ok');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('sites.crx'))).toBe(true);
+    expect(JSON.parse(await env.Bypass_KV.get('cs_local_files'))).toEqual(['contentScript_en.js', 'contentScript_fi.se.js']);
+    expect(await env.Bypass_KV.get('cs_local:contentScript_en.js')).toBe('// en real layout');
+    expect(await env.Bypass_KV.get('cs_local_extracted_version')).toBe('2.0.0');
+    expect(Object.keys(JSON.parse(await env.Bypass_KV.get('manifest')).cs_local.files)).toEqual(['contentScript_en.js', 'contentScript_fi.se.js']);
+
+    // An empty list that was already attempted for this version is not retried on every run.
+    await env.Bypass_KV.put('cs_local_files', '[]');
+    fetchMock.mockClear();
+    expect((await updateFiles(updateEnv)).status).toBe('ok');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('sites.crx'))).toBe(false);
   });
 
   it('builds the cs_local manifest entry only when scripts exist', () => {

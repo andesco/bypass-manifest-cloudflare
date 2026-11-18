@@ -9,6 +9,7 @@ import {
   CS_LOCAL_KV_PREFIX,
   CS_LOCAL_LIST_KEY,
   CS_LOCAL_PATH_PREFIX,
+  CS_LOCAL_VERSION_KEY,
   getCsLocalRoute,
   isCsLocalFilename,
   ROUTES_BY_PATH,
@@ -173,8 +174,14 @@ async function buildUpdatePlan(env, forceUpdate, log) {
     metadata: {},
   };
 
+  // Re-extract cs_local when it was never stored, or when the stored list is empty and
+  // has not been attempted for this Chrome version (an empty list must not block a retry).
+  const storedCsLocal = parseKvJson(current.cs_local_files);
+  const csLocalBackfillNeeded = !Array.isArray(storedCsLocal)
+    || (storedCsLocal.length === 0 && current.cs_local_extracted_version !== versions.chrome);
+
   const firefoxNeedsUpdate = forceUpdate || !current.sites || !current.sites_js || versions.firefox !== current.last_sites_version;
-  const chromeNeedsUpdate = Boolean(chromeManifest) && (forceUpdate || !current.sites_latest_json || !current.sites_latest_js || !current.cs_local_files || versions.chrome !== current.last_sites_latest_version);
+  const chromeNeedsUpdate = Boolean(chromeManifest) && (forceUpdate || !current.sites_latest_json || !current.sites_latest_js || csLocalBackfillNeeded || versions.chrome !== current.last_sites_latest_version);
   const mirroredNeedsUpdate = forceUpdate || !current.sites_updated || !current.sites_custom || versions.remote_manifest !== current.last_remote_manifest_version;
 
   const firefox = firefoxNeedsUpdate
@@ -300,6 +307,7 @@ async function buildUpdatePlan(env, forceUpdate, log) {
       }
     }
     staged.writes.push({ key: CS_LOCAL_LIST_KEY, value: JSON.stringify(csLocalFilenames) });
+    staged.writes.push({ key: CS_LOCAL_VERSION_KEY, value: versions.chrome || versions.firefox });
     await log('info', 'Staged cs_local content scripts.', { count: csLocalFilenames.length });
   }
   staged.csLocalFilenames = csLocalFilenames;
@@ -477,6 +485,7 @@ async function readCurrentState(env) {
     'sites_updated',
     'sites_custom',
     CS_LOCAL_LIST_KEY,
+    CS_LOCAL_VERSION_KEY,
     LAST_VERSION_KEYS.firefox,
     LAST_VERSION_KEYS.chrome,
     LAST_VERSION_KEYS.remote_manifest,
@@ -494,6 +503,7 @@ async function readCurrentState(env) {
     sites_updated: byKey.sites_updated,
     sites_custom: byKey.sites_custom,
     cs_local_files: byKey[CS_LOCAL_LIST_KEY],
+    cs_local_extracted_version: byKey[CS_LOCAL_VERSION_KEY],
     last_sites_version: byKey[LAST_VERSION_KEYS.firefox],
     last_sites_latest_version: byKey[LAST_VERSION_KEYS.chrome],
     last_remote_manifest_version: byKey[LAST_VERSION_KEYS.remote_manifest],
