@@ -314,6 +314,7 @@ describe('worker routing and updates', () => {
     expect(indexHtml).toContain('Expected result: the extension adds a sample fallback link below. This is not an error.');
     // The four case cards come before the less important "Rule status" panel.
     expect(indexHtml.indexOf('aria-label="Test cases"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
+    expect(indexHtml).toMatch(/<article id="test-link-content">\s*<p data-link-placeholder>/);
     expect(indexHtml.lastIndexOf('data-test-card="headers"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
 
     for (const path of ['/test/dom', '/test/network', '/test/content', '/test/headers']) {

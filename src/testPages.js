@@ -53,8 +53,11 @@ const PAGE_STYLES = `
   #test-link-paywall { margin-bottom: .3rem; padding: .35rem .75rem; }
   .link-caption { margin: 0 0 .15rem; font-size: .8rem; line-height: 1.3; color: #444; }
   #test-link-content { margin: 0; padding: .25rem .6rem; border: 1px dashed #888; background: #f4f4f4; color: #333; font-size: .8rem; line-height: 1.3; overflow-wrap: anywhere; }
-  #test-link-content::before { content: "Sample output: "; font-weight: 600; color: #666; }
-  #test-link-content p { display: inline; margin: 0; }
+  #test-link-content::before { content: "Sample output:"; display: block; font-weight: 600; color: #666; }
+  #test-link-content p { margin: 0; }
+  #bpc_archive ~ [data-link-placeholder] { display: none; }
+  #test-link-content #bpc_archive { margin: 0 !important; font-size: .8rem !important; font-weight: normal !important; color: #333 !important; line-height: 1.3 !important; }
+  #test-link-content #bpc_archive a { color: #333 !important; font-size: .8rem !important; font-weight: normal !important; }
   .case-fixtures { font-size: .9rem; }
   .case-fixtures article { margin: 0 0 .5rem; }
   .case-fixtures h3 { margin: 0 0 .15rem; font-size: 1rem; }
@@ -112,7 +115,7 @@ const CASE_DEFINITIONS = [
       </article>
       <div class="fixture" id="test-link-paywall">This is the synthetic link paywall marker.</div>
       <p class="link-caption" data-link-caption>Expected result: the extension adds a sample fallback link below. This is not an error.</p>
-      <article id="test-link-content"></article>`,
+      <article id="test-link-content"><p data-link-placeholder>Waiting for the extension to add the link.</p></article>`,
   },
   {
     id: 'headers',
