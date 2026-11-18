@@ -49,3 +49,4 @@ test/*
 # OS
 
 .DS_Store
+.cloudflare/
