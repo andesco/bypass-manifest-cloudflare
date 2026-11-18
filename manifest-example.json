@@ -1,36 +1,63 @@
 {
-    "sites_js": {
-        "version": "4.2.1.0",
-        "url": "{domain-name}/sites.js"
-    },
-    "sites_json": {
-        "version": "4.2.1.0",
-        "url": "{domain-name}/sites.json"
-    },
-    "sites_latest_js": {
-        "version": "4.3.0.0",
-        "url": "{domain-name}/sites_latest.js"
-    },
-    "sites_latest_json": {
-        "version": "4.3.0.0",
-        "url": "{domain-name}/sites_latest.json"
-    },
-    "sites_updated_json": {
-        "version": "4.2.5.5",
-        "url": "{domain-name}/sites_updated.json"
-    },
-    "sites_custom_json": {
-        "version": "4.3.0.5",
-        "url": "{domain-name}/sites_custom.json"
-    },
-    "sites_aggregated_json": {
-      "url": "{domain-name}/sites_aggregated.json",
-      "version": "4.3.0.5",
-      "description": "Pre-aggregated JSON ruleset (base + updated + custom)"
-    },
-    "sites_aggregated_yaml": {
-      "url": "{domain-name}/sites_aggregated.yaml",
-      "version": "4.3.0.5",
-      "description": "Pre-aggregated YAML ruleset (base + updated + custom)"
+  "sites_js": {
+    "version": "4.2.1.0",
+    "url": "{domain-name}/sites.js"
+  },
+  "sites_json": {
+    "version": "4.2.1.0",
+    "url": "{domain-name}/sites.json"
+  },
+  "sites_updated_json": {
+    "version": "4.2.5.5",
+    "url": "{domain-name}/sites_updated.json"
+  },
+  "sites_latest_js": {
+    "version": "4.3.0.0",
+    "url": "{domain-name}/sites_latest.js"
+  },
+  "sites_latest_json": {
+    "version": "4.3.0.0",
+    "url": "{domain-name}/sites_latest.json"
+  },
+  "sites_custom_json": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/sites_custom.json"
+  },
+  "sites_aggregated_js": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/sites_aggregated.js"
+  },
+  "sites_aggregated_json": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/sites_aggregated.json"
+  },
+  "sites_aggregated_yaml": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/sites_aggregated.yaml"
+  },
+  "cs_local": {
+    "version": "4.3.0.0",
+    "files": {
+      "contentScript_de.js": "{domain-name}/cs_local/contentScript_de.js",
+      "contentScript_en.js": "{domain-name}/cs_local/contentScript_en.js",
+      "contentScript_es.pt.js": "{domain-name}/cs_local/contentScript_es.pt.js",
+      "contentScript_fi.se.js": "{domain-name}/cs_local/contentScript_fi.se.js",
+      "contentScript_fr.js": "{domain-name}/cs_local/contentScript_fr.js",
+      "contentScript_it.js": "{domain-name}/cs_local/contentScript_it.js",
+      "contentScript_nl.js": "{domain-name}/cs_local/contentScript_nl.js",
+      "contentScript_pl.js": "{domain-name}/cs_local/contentScript_pl.js"
     }
+  },
+  "test_suite": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/test"
+  },
+  "test_rule_json": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/test/rule.json"
+  },
+  "health": {
+    "version": "4.3.0.5",
+    "url": "{domain-name}/health"
+  }
 }

@@ -11,14 +11,35 @@ The result is a updated manifest that contains the current version and URL for e
 ### Manifest
 
 **0. `manifest.json`**
-   1. `sites.js`
-   2. `sites.json`
-   3. `sites_latest.js`
-   4. `sites_latest.json`
-   5. `sites_updated.json`
-   6. `sites_custom.json`
-   7. `sites_aggregated.json`
-   8. `sites_aggregated.yaml`
+   1. `sites.js` (`sites_js`)
+   2. `sites.json` (`sites_json`)
+   3. `sites_latest.js` (`sites_latest_js`)
+   4. `sites_latest.json` (`sites_latest_json`)
+   5. `sites_updated.json` (`sites_updated_json`)
+   6. `sites_custom.json` (`sites_custom_json`)
+   7. `sites_aggregated.js` (`sites_aggregated_js`)
+   8. `sites_aggregated.json` (`sites_aggregated_json`)
+   9. `sites_aggregated.yaml` (`sites_aggregated_yaml`)
+   10. `/test` (`test_suite`)
+   11. `/test/rule.json` (`test_rule_json`)
+   12. `/health` (`health`)
+   13. `/cs_local/contentScript_:lang.js` (`cs_local`, a map of filename to URL; see below)
+
+#### `cs_local` entry
+
+Site-specific content scripts (`cs_local/contentScript_*.js`) are extracted from the latest Chrome `.crx` and served unchanged. Unlike the other entries, `cs_local` has no single `url`. It has a `version` (the Chrome version) and a `files` object that maps each filename to its URL:
+
+```json
+"cs_local": {
+  "version": "4.3.0.0",
+  "files": {
+    "contentScript_en.js": "https://bypass.example.com/cs_local/contentScript_en.js",
+    "contentScript_es.pt.js": "https://bypass.example.com/cs_local/contentScript_es.pt.js"
+  }
+}
+```
+
+The set of files follows the upstream archive, so clients should iterate `files` instead of hardcoding language codes. The `cs_local` key is omitted until a Chrome archive containing these files has been processed.
 
 ### Mirrored and Generated Files
 <!-- this section should not be eddited by Claude or Gemini -->
@@ -127,6 +148,8 @@ The worker updates the files through two mechanisms:
 ### Browser Test Suite
 
 The Worker adds a test-only rule for `bypass.example.com` to the aggregated artifacts. It is not written into the mirrored `sites.js`, `sites_latest.json`, `sites_updated.json`, or `sites_custom.json` sources.
+
+`/manifest.json` advertises the Worker's operational and test endpoints alongside the artifact URLs (`test_suite` -> `/test`, `test_rule_json` -> `/test/rule.json`, and `health` -> `/health`), allowing downstream clients to discover all endpoints from the manifest without hardcoding paths.
 
 Visit `/test` on the deployed Worker to open the consolidated fixture suite. The single page contains four status cards covering:
 

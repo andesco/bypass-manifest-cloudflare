@@ -5,7 +5,15 @@ import { generateAggregatedSitesObject } from './generateAggregatedSitesObject.j
 import { generateAggregatedJs } from './generateAggregatedJs.js';
 import { convertJsonToYaml } from './convertJsonToYaml.js';
 import { getHighestUpdVersion, getHighestVersion } from './versions.js';
-import { ROUTES_BY_PATH, SERVED_FILES } from './routes.js';
+import {
+  CS_LOCAL_KV_PREFIX,
+  CS_LOCAL_LIST_KEY,
+  CS_LOCAL_PATH_PREFIX,
+  getCsLocalRoute,
+  isCsLocalFilename,
+  ROUTES_BY_PATH,
+  SERVED_FILES,
+} from './routes.js';
 import { getPublicBaseUrl, getSourceUrls, SOURCE_METADATA_KEYS } from './sources.js';
 import { getTestRoute, NO_STORE } from './testPages.js';
 import { getWorkerTestRule, TEST_RULE_DOMAIN, TEST_RULE_TITLE, WORKER_TEST_RULES } from './testRules.js';
@@ -67,15 +75,17 @@ export default {
       });
     }
 
-    const route = ROUTES_BY_PATH.get(url.pathname);
-    if (!route) return new Response('Not found', { status: 404 });
+    const route = ROUTES_BY_PATH.get(url.pathname) || getCsLocalRoute(url.pathname);
+    if (route) {
+      const content = await env.Bypass_KV.get(route.kvKey);
+      if (!content) return new Response('File not found', { status: 404 });
 
-    const content = await env.Bypass_KV.get(route.kvKey);
-    if (!content) return new Response('File not found', { status: 404 });
+      return new Response(content, {
+        headers: { 'Content-Type': route.contentType },
+      });
+    }
 
-    return new Response(content, {
-      headers: { 'Content-Type': route.contentType },
-    });
+    return new Response('Not found', { status: 404 });
   },
 };
 
@@ -164,7 +174,7 @@ async function buildUpdatePlan(env, forceUpdate, log) {
   };
 
   const firefoxNeedsUpdate = forceUpdate || !current.sites || !current.sites_js || versions.firefox !== current.last_sites_version;
-  const chromeNeedsUpdate = Boolean(chromeManifest) && (forceUpdate || !current.sites_latest_json || !current.sites_latest_js || versions.chrome !== current.last_sites_latest_version);
+  const chromeNeedsUpdate = Boolean(chromeManifest) && (forceUpdate || !current.sites_latest_json || !current.sites_latest_js || !current.cs_local_files || versions.chrome !== current.last_sites_latest_version);
   const mirroredNeedsUpdate = forceUpdate || !current.sites_updated || !current.sites_custom || versions.remote_manifest !== current.last_remote_manifest_version;
 
   const firefox = firefoxNeedsUpdate
@@ -271,7 +281,30 @@ async function buildUpdatePlan(env, forceUpdate, log) {
     aggregate: aggregateVersion,
   };
 
-  const manifest = buildWorkerManifest(getPublicBaseUrl(env), staged.versions);
+  // cs_local content scripts come from the Chrome archive (the base for
+  // aggregation). Firefox is only used when no Chrome source is configured.
+  const csLocalSource = chromeNeedsUpdate
+    ? chrome.csLocalFiles
+    : (!chromeManifest && firefoxNeedsUpdate ? firefox.csLocalFiles : null);
+
+  let csLocalFilenames = parseKvJson(current.cs_local_files) || [];
+  if (csLocalSource) {
+    const previousFilenames = csLocalFilenames;
+    csLocalFilenames = Object.keys(csLocalSource).sort();
+    for (const filename of csLocalFilenames) {
+      staged.writes.push({ key: `${CS_LOCAL_KV_PREFIX}${filename}`, value: csLocalSource[filename] });
+    }
+    for (const filename of previousFilenames) {
+      if (!csLocalFilenames.includes(filename) && isCsLocalFilename(filename)) {
+        staged.writes.push({ key: `${CS_LOCAL_KV_PREFIX}${filename}`, delete: true });
+      }
+    }
+    staged.writes.push({ key: CS_LOCAL_LIST_KEY, value: JSON.stringify(csLocalFilenames) });
+    await log('info', 'Staged cs_local content scripts.', { count: csLocalFilenames.length });
+  }
+  staged.csLocalFilenames = csLocalFilenames;
+
+  const manifest = buildWorkerManifest(getPublicBaseUrl(env), staged.versions, staged.csLocalFilenames);
   staged.writes.push({ key: 'manifest', value: JSON.stringify(manifest, null, 2) });
   staged.writes.push({ key: LAST_VERSION_KEYS.firefox, value: versions.firefox });
   staged.writes.push({ key: LAST_VERSION_KEYS.chrome, value: versions.chrome });
@@ -293,6 +326,10 @@ async function buildUpdatePlan(env, forceUpdate, log) {
 
 async function commitStagedUpdate(env, staged) {
   for (const write of staged.writes) {
+    if (write.delete) {
+      await env.Bypass_KV.delete(write.key);
+      continue;
+    }
     if (write.value === null || write.value === undefined) continue;
     await env.Bypass_KV.put(write.key, write.value);
   }
@@ -338,7 +375,17 @@ async function fetchAndConvertArchive(url, archiveType, label, log) {
   const json = convertSitesJsToJson(js);
   validateRulesJson(json, `${label}.json`);
 
-  return { js, json };
+  const csLocalFiles = {};
+  for (const [entryName, entry] of Object.entries(entries)) {
+    if (entry.isDirectory) continue;
+    const parts = entryName.split('/');
+    const filename = parts[parts.length - 1];
+    if (parts[parts.length - 2] === 'cs_local' && isCsLocalFilename(filename)) {
+      csLocalFiles[filename] = await entry.text();
+    }
+  }
+
+  return { js, json, csLocalFiles };
 }
 
 async function fetchValidatedRulesJson(url, label) {
@@ -364,7 +411,7 @@ async function fetchText(url, label) {
   return response.text();
 }
 
-function buildWorkerManifest(baseUrl, versions) {
+export function buildWorkerManifest(baseUrl, versions, csLocalFilenames = []) {
   const versionBySource = {
     firefox: versions.firefox,
     sites_updated: versions.sites_updated || versions.remote_manifest,
@@ -375,7 +422,7 @@ function buildWorkerManifest(baseUrl, versions) {
 
   const manifest = {};
   for (const file of SERVED_FILES) {
-    if (file.manifestKey === 'manifest') continue;
+    if (file.manifestKey === 'manifest' || !file.manifestKey) continue;
     const version = versionBySource[file.source];
     if (!version) continue;
     manifest[file.manifestKey] = {
@@ -383,6 +430,31 @@ function buildWorkerManifest(baseUrl, versions) {
       url: `${baseUrl}${file.path}`,
     };
   }
+
+  if (Array.isArray(csLocalFilenames) && csLocalFilenames.length > 0) {
+    manifest.cs_local = {
+      version: versions.chrome || versions.firefox,
+      files: Object.fromEntries(
+        csLocalFilenames.map(filename => [filename, `${baseUrl}${CS_LOCAL_PATH_PREFIX}${filename}`])
+      ),
+    };
+  }
+
+  if (baseUrl && versions.aggregate) {
+    manifest.test_suite = {
+      version: versions.aggregate,
+      url: `${baseUrl}/test`,
+    };
+    manifest.test_rule_json = {
+      version: versions.aggregate,
+      url: `${baseUrl}/test/rule.json`,
+    };
+    manifest.health = {
+      version: versions.aggregate,
+      url: `${baseUrl}/health`,
+    };
+  }
+
   return manifest;
 }
 
@@ -404,6 +476,7 @@ async function readCurrentState(env) {
     'sites_latest_json',
     'sites_updated',
     'sites_custom',
+    CS_LOCAL_LIST_KEY,
     LAST_VERSION_KEYS.firefox,
     LAST_VERSION_KEYS.chrome,
     LAST_VERSION_KEYS.remote_manifest,
@@ -420,6 +493,7 @@ async function readCurrentState(env) {
     sites_latest_json: byKey.sites_latest_json,
     sites_updated: byKey.sites_updated,
     sites_custom: byKey.sites_custom,
+    cs_local_files: byKey[CS_LOCAL_LIST_KEY],
     last_sites_version: byKey[LAST_VERSION_KEYS.firefox],
     last_sites_latest_version: byKey[LAST_VERSION_KEYS.chrome],
     last_remote_manifest_version: byKey[LAST_VERSION_KEYS.remote_manifest],

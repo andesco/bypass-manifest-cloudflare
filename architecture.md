@@ -23,6 +23,7 @@ Cloudflare Worker (updateFiles)
   - Extract + convert:
       - XPI -> sites.js -> sites.json
       - CRX -> sites_latest.js -> sites_latest.json
+      - CRX -> cs_local/contentScript_*.js (served as-is)
   - Aggregate:
       - sites_latest.json + sites_updated.json + sites_custom.json + Worker test rule -> sites_aggregated.*
   - Validate staged artifacts
@@ -41,10 +42,10 @@ Public HTTP API (read-through from KV + computed /health)
 2. Worker fetches `updates.json` (Firefox) and `updates.xml` (Chrome) to determine the latest versions and artifact URLs.
 3. Worker fetches upstream `manifest.json` to detect changes that should refresh mirrored files.
 4. If the Firefox version changed (or forced), Worker downloads the XPI, extracts `sites.js`, stores `sites_js`, and stores the JSON conversion as `sites`.
-5. If the Chrome version changed (or forced), Worker downloads the CRX, extracts the ZIP payload, extracts `sites.js`, stores it as `sites_latest_js`, and stores the JSON conversion as `sites_latest_json`.
+5. If the Chrome version changed (or forced), Worker downloads the CRX, extracts the ZIP payload, extracts `sites.js`, stores it as `sites_latest_js`, and stores the JSON conversion as `sites_latest_json`. It also extracts every `cs_local/contentScript_*.js` entry and stores each under `cs_local:<filename>`, records the sorted filename list in `cs_local_files`, and deletes `cs_local:*` keys for scripts that no longer exist upstream. If `cs_local_files` is missing (e.g. first run after upgrade), the CRX is re-downloaded to backfill it. Firefox `cs_local` entries are used only when no Chrome source is configured.
 6. If the upstream manifest version changed (or forced), Worker refreshes `sites_updated.json` (stored as `sites_updated`) and `sites_custom.json` (stored as `sites_custom`).
-7. Worker generates `sites_aggregated_json` using `sites_latest_json` + `sites_updated` + `sites_custom` + the Worker-scoped `bypass.example.com` test rule (groups expanded), `sites_aggregated_js` using the same inputs (groups not expanded; regex literals re-emitted), and `sites_aggregated_yaml` derived from `sites_aggregated_json`.
-8. Worker validates generated artifacts, writes a Worker-generated `/manifest.json` to KV key `manifest`, and updates `last_*`, `meta:source:*`, and `log:info` status keys.
+7. Worker generates `sites_aggregated_json` using `sites_latest_json` + `sites_updated` + `sites_custom` + the Worker-scoped `bypass.example.com` test rule (groups and `exception` overrides expanded, `{domain}` placeholders interpolated, polymorphic fields normalized), `sites_aggregated_js` using the same inputs (groups not expanded; regex literals re-emitted), and `sites_aggregated_yaml` derived from `sites_aggregated_json`.
+8. Worker validates generated artifacts, writes a Worker-generated `/manifest.json` (including the `cs_local` script list and the `test_suite`, `test_rule_json`, and `health` endpoints) to KV key `manifest`, and updates `last_*`, `meta:source:*`, and `log:info` status keys.
 
 ## Public Endpoints
 
@@ -56,13 +57,14 @@ Public HTTP API (read-through from KV + computed /health)
 | `GET /sites_latest.json` | `application/json` | `sites_latest_json` | JSON conversion of `sites_latest.js` |
 | `GET /sites_updated.json` | `application/json` | `sites_updated` | Mirrored upstream file; middle precedence during aggregation |
 | `GET /sites_custom.json` | `application/json` | `sites_custom` | Mirrored upstream file; overrides base during aggregation |
-| `GET /sites_aggregated.json` | `application/json` | `sites_aggregated_json` | Recommended consumer endpoint (groups expanded) |
+| `GET /sites_aggregated.json` | `application/json` | `sites_aggregated_json` | Recommended consumer endpoint (groups & exceptions expanded, `{domain}` interpolated) |
 | `GET /sites_aggregated.js` | `application/javascript` | `sites_aggregated_js` | BPC-like JS shape (groups preserved) |
 | `GET /sites_aggregated.yaml` | `text/yaml; charset=utf-8` | `sites_aggregated_yaml` | YAML derived from aggregated JSON |
-| `GET /manifest.json` | `application/json` | `manifest` | Worker-generated manifest of served URLs + versions |
-| `GET /health` | `application/json` | (computed) | Status report derived from multiple KV keys |
-| `GET /test` | `text/html` | (computed) | Consolidated browser test-suite dashboard |
-| `GET /test/rule.json` | `application/json` | (computed) | Test rule and aggregate-injection status |
+| `GET /manifest.json` | `application/json` | `manifest` | Worker-generated manifest of artifact, test (`test_suite`, `test_rule_json`), and `health` URLs + versions |
+| `GET /cs_local/contentScript_:lang.js` | `application/javascript; charset=utf-8` | `cs_local:contentScript_:lang.js` | Site-specific content script extracted from the Chrome CRX (e.g. `contentScript_en.js`, `contentScript_es.pt.js`); listed under `cs_local` in `/manifest.json` |
+| `GET /health` | `application/json` | (computed) | Status report derived from multiple KV keys (manifest key: `health`) |
+| `GET /test` | `text/html` | (computed) | Consolidated browser test-suite dashboard (manifest key: `test_suite`) |
+| `GET /test/rule.json` | `application/json` | (computed) | Test rule and aggregate-injection status (manifest key: `test_rule_json`) |
 | `GET /test/echo` | `application/json` | (computed) | Selected request headers observed by the Worker |
 
 ## Source Files
@@ -112,9 +114,10 @@ Source: `src/generateAggregatedJson.js`
 1. **Merge** the three sources with precedence (Custom > Updated > Base)
 2. **Identify deletions:** `###_remove_sites.cs_code` contains a comma-separated list of rule keys to delete; rules with `delete: true` or `domain: ""` are deleted; and group deletion markers use `domain: "###_groupname"` without a `group` array to delete that group.
 3. **Collect domains to delete** from any groups marked for deletion
-4. **Expand groups**: each domain in a `group` array becomes its own rule entry with the group's properties (minus the `group` field)
-5. **Filter**: apply the deletion markers to rule keys and domains; keep metadata/settings entries (e.g. `domain: "###"` or `#options_*`) unless explicitly deleted
-6. **Output**: JSON array of rule objects (mostly `{ domain, ...properties }`)
+4. **Expand groups & exceptions**: each domain in a `group` array becomes its own rule entry; matching entries in `exception[]` replace the parent group rule for their domain(s), standalone `exception[]` entries (including on non-group `###_*` general rules) emit concrete domain rules, and raw `group` and `exception` arrays are stripped from output entries
+5. **Interpolate & normalize**: concrete domain rules replace `{domain}` with `domain.replace(/\./g, '\\.')` in regex fields (`block_regex`, `block_regex_general`, `block_js_inline`, `headers_filter`), parse JSON-encoded `cs_code` strings into arrays, and normalize comma-separated `remove_cookies_select_drop` / `remove_cookies_select_hold` strings into `string[]`
+6. **Filter**: apply the deletion markers to rule keys and domains; keep metadata/settings entries (e.g. `domain: "###"` or `#options_*`) unless explicitly deleted
+7. **Output**: JSON array of rule objects (mostly `{ domain, ...properties }`)
 
 ### `generateAggregatedSitesObject()` — the JS object aggregation
 
@@ -179,6 +182,8 @@ Converts raw `sites.js` / `sites_latest.js` (JS object literal with regex litera
 | `sites_aggregated_json` | Aggregated JSON array (groups expanded) |
 | `sites_aggregated_js` | Aggregated JS file (groups not expanded) |
 | `sites_aggregated_yaml` | Aggregated YAML |
+| `cs_local:<filename>` | One `contentScript_*.js` file extracted from the CRX `cs_local/` directory |
+| `cs_local_files` | JSON array of the `cs_local:<filename>` names currently stored (drives the manifest and stale-key cleanup) |
 | `manifest` | Endpoint manifest with versions/URLs |
 | `last_sites_version` | Version string for change detection |
 | `last_sites_latest_version` | Version string for change detection |
