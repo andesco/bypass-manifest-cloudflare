@@ -314,6 +314,11 @@ describe('worker routing and updates', () => {
     expect(indexHtml).toContain('Expected result: the extension adds a sample fallback link below. This is not an error.');
     // The four case cards come before the less important "Rule status" panel.
     expect(indexHtml.indexOf('aria-label="Test cases"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
+    // Polling waits for late extension changes instead of exiting on the first effect.
+    expect(indexHtml).toContain('const POLL_INTERVAL_MS = 750;');
+    expect(indexHtml).toContain('const EFFECT_DEADLINE_MS = 15000;');
+    expect(indexHtml).toContain('const NO_EFFECT_DEADLINE_MS = 8000;');
+    expect(indexHtml).toContain('if (allChecksPass(observations)) break;');
     expect(indexHtml).toMatch(/<article id="test-link-content">\s*<p data-link-placeholder>/);
     expect(indexHtml.lastIndexOf('data-test-card="headers"')).toBeLessThan(indexHtml.indexOf('<h2>Rule status</h2>'));
 

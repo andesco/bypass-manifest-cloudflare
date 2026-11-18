@@ -249,6 +249,14 @@ function renderSuite() {
         document.querySelector('#test-rule').textContent = JSON.stringify(report, null, 2);
       }
 
+      const POLL_INTERVAL_MS = 750;
+      const EFFECT_DEADLINE_MS = 15000;
+      const NO_EFFECT_DEADLINE_MS = 8000;
+
+      function allChecksPass(observations) {
+        return Object.values(observations).every(checks => checks.every(check => check.state === 'pass'));
+      }
+
       function hasExtensionEffect(observations) {
         return Object.values(observations).some(checks => checks.some(check => check.effect));
       }
@@ -358,18 +366,17 @@ function renderSuite() {
 
         let observations;
         try {
-          // background.js schedules custom DOM work one second after Safari
-          // reports the page. Give that work time to settle, then retry once
-          // more for devices where tabs.onUpdated arrives late.
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          for (let attempt = 0; attempt < 6; attempt++) {
+          // The extension's content script can land late after a cold background
+          // wake. Keep re-collecting (including the header echo) until every
+          // check passes or a deadline passes. Cards stay in their waiting state
+          // until the final reading below.
+          const suiteStart = Date.now();
+          while (true) {
             observations = await collectObservations();
-            if (hasExtensionEffect(observations)) {
-              await new Promise(resolve => setTimeout(resolve, 400));
-              observations = await collectObservations();
-              break;
-            }
-            if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 500));
+            if (allChecksPass(observations)) break;
+            const deadline = hasExtensionEffect(observations) ? EFFECT_DEADLINE_MS : NO_EFFECT_DEADLINE_MS;
+            if (Date.now() - suiteStart + POLL_INTERVAL_MS > deadline) break;
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
           }
         } catch (error) {
           setOverall('fail', 'FAIL · fixture checks could not run', error.message);
