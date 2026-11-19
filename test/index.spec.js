@@ -296,6 +296,21 @@ describe('worker routing and updates', () => {
     expect(await response.json()).toEqual([{ domain: 'example.com' }]);
   });
 
+  it('adds CORS headers to public read-only routes, including errors', async () => {
+    await env.Bypass_KV.put('sites_aggregated_json', '[]');
+    const paths = ['/sites_aggregated.json', '/manifest.json', '/sites_custom.json', '/health', '/test/rule.json', '/cs_local/contentScript_zz.js'];
+    for (const path of paths) {
+      const response = await worker.fetch(new Request(`https://example.test${path}`), env, createExecutionContext());
+      expect(response.headers.get('Access-Control-Allow-Origin'), path).toBe('*');
+    }
+    const missing = await worker.fetch(new Request('https://example.test/sites_custom.json'), env, createExecutionContext());
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('Access-Control-Allow-Origin')).toBe('*');
+
+    const update = await worker.fetch(new Request('https://example.test/initiate-update'), env, createExecutionContext());
+    expect(update.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  });
+
   it('serves deterministic test pages and exposes the Worker test rule', async () => {
     const indexResponse = await worker.fetch(
       new Request('https://bypass.example.com/test'),

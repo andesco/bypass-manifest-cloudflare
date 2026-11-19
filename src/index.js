@@ -29,13 +29,23 @@ const LAST_VERSION_KEYS = {
   remote_manifest: 'last_remote_manifest_version',
 };
 
-export default {
+const worker = {
   async scheduled(event, env, ctx) {
     console.log('Scheduled event triggered.');
     ctx.waitUntil(updateFiles(env));
   },
 
   async fetch(request, env, ctx) {
+    const response = await worker.handle(request, env, ctx);
+    if (!isPublicReadPath(new URL(request.url).pathname)) return response;
+
+    // Public read-only routes fetched cross-origin by the extension; errors included.
+    const withCors = new Response(response.body, response);
+    withCors.headers.set('Access-Control-Allow-Origin', '*');
+    return withCors;
+  },
+
+  async handle(request, env, ctx) {
     const url = new URL(request.url);
 
     if (url.pathname === '/initiate-update') {
@@ -89,6 +99,15 @@ export default {
     return new Response('Not found', { status: 404 });
   },
 };
+
+export default worker;
+
+function isPublicReadPath(pathname) {
+  return pathname === '/health'
+    || pathname === '/test/rule.json'
+    || ROUTES_BY_PATH.has(pathname)
+    || pathname.startsWith(CS_LOCAL_PATH_PREFIX);
+}
 
 export async function updateFiles(env, forceUpdate = false) {
   const logs = [];
