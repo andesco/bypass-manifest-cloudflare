@@ -573,7 +573,7 @@ async function buildHealthReport(env) {
     last_update_started_at: lastUpdateStartedAt || null,
     last_update_finished_at: lastUpdateFinishedAt || null,
     last_update_ok_at: lastUpdateOkAt || null,
-    last_update_error: lastUpdateError || null,
+    last_update_error: redactUrls(lastUpdateError) || null,
     versions: {
       sites: lastSitesVersion || null,
       sites_latest: lastSitesLatestVersion || null,
@@ -581,10 +581,21 @@ async function buildHealthReport(env) {
       manifest: lastRemoteManifestVersion || null,
     },
     sources: Object.fromEntries(
-      Object.keys(SOURCE_METADATA_KEYS).map((name, index) => [name, parseKvJson(metadataValues[index])])
+      Object.keys(SOURCE_METADATA_KEYS).map((name, index) => [name, publicSourceMetadata(parseKvJson(metadataValues[index]))])
     ),
     manifest: parseKvJson(manifest),
   };
+}
+
+// Upstream source URLs (e.g. the Git repository) must never be exposed publicly.
+function publicSourceMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return metadata;
+  const { url, ...rest } = metadata;
+  return rest;
+}
+
+function redactUrls(text) {
+  return typeof text === 'string' ? text.replace(/https?:\/\/[^\s"'<>)]+/gi, '[redacted-url]') : text;
 }
 
 async function acquireUpdateLock(env) {
