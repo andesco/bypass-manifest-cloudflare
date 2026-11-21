@@ -1,7 +1,13 @@
-// Public template with placeholder values. Keep your real values in `cloudflare.config.local.ts` (gitignored).
+// Public template with placeholder values.
+//
+// To deploy with your own domain, KV namespace and upstream URL, create a
+// gitignored `cloudflare.local.config.ts` next to this file with the same default
+// export. When it exists it replaces this config. Only a missing file is ignored;
+// any error inside it (syntax, missing import) stops the deploy instead of
+// silently deploying these placeholders.
 import { bindings, defineConfig, triggers } from "cf/config";
 
-export default defineConfig({
+const template = defineConfig({
 	worker: {
 		name: "bypass-manifest-cloudflare",
 		compatibilityDate: "2026-05-27",
@@ -25,3 +31,12 @@ export default defineConfig({
 		},
 	},
 });
+
+const local = await import("./cloudflare.local.config.ts")
+	.then((module) => module.default)
+	.catch((error) => {
+		if (error?.code === "ERR_MODULE_NOT_FOUND" && String(error.message).includes("cloudflare.local.config")) return null;
+		throw error;
+	});
+
+export default local ?? template;

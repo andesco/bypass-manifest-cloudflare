@@ -34,7 +34,7 @@ jspm_packages/
 !.env.example
 .wrangler/
 wrangler.local.toml
-cloudflare.config.local.ts
+cloudflare.local.config.ts
 
 # project
 
