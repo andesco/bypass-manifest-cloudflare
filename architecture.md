@@ -58,7 +58,7 @@ Public HTTP API (read-through from KV + computed /health)
 | `GET /sites_updated.json` | `application/json` | `sites_updated` | Mirrored upstream file; middle precedence during aggregation |
 | `GET /sites_custom.json` | `application/json` | `sites_custom` | Mirrored upstream file; overrides base during aggregation |
 | `GET /sites_aggregated.json` | `application/json` | `sites_aggregated_json` | Recommended consumer endpoint (groups & exceptions expanded, `{domain}` interpolated) |
-| `GET /sites_aggregated.js` | `application/javascript` | `sites_aggregated_js` | BPC-like JS shape (groups preserved) |
+| `GET /sites_aggregated.js` | `application/javascript` | `sites_aggregated_js` | Upstream-like JS shape (groups preserved) |
 | `GET /sites_aggregated.yaml` | `text/yaml; charset=utf-8` | `sites_aggregated_yaml` | YAML derived from aggregated JSON |
 | `GET /manifest.json` | `application/json` | `manifest` | Worker-generated manifest of artifact, test (`test_suite`, `test_rule_json`), and `health` URLs + versions |
 | `GET /cs_local/contentScript_:lang.js` | `application/javascript; charset=utf-8` | `cs_local:contentScript_:lang.js` | Site-specific content script extracted from the Chrome CRX (e.g. `contentScript_en.js`, `contentScript_es.pt.js`); listed under `cs_local` in `/manifest.json` |
@@ -209,7 +209,7 @@ The `.js` endpoint is a **partial** aggregation:
 - JavaScript syntax with regex literals
 - Requires JS eval or AST parsing to consume
 
-The `.js` format exists to replicate the original BPC `sites.js` structure. Nothing currently consumes it. It could be removed to simplify the pipeline — `generateAggregatedSitesObject.js` and `generateAggregatedJs.js` would be deleted, along with the `sites_aggregated_js` KV key and `/sites_aggregated.js` route.
+The `.js` format exists to replicate the original upstream `sites.js` structure. Nothing currently consumes it. It could be removed to simplify the pipeline — `generateAggregatedSitesObject.js` and `generateAggregatedJs.js` would be deleted, along with the `sites_aggregated_js` KV key and `/sites_aggregated.js` route.
 
 ## Downstream Consumer
 

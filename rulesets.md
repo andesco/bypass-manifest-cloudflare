@@ -1,6 +1,6 @@
-# Bypass Paywalls Clean: Ruleset Documentation
+# Upstream Ruleset Documentation
 
-This document provides a technical overview of the different rulesets used by the Bypass Paywalls Clean Chrome extension to bypass paywalls. It details the purpose, structure, and hierarchy of each ruleset, and explains how they are loaded and applied by the extension.
+This document provides a technical overview of the different rulesets used by the upstream Chrome extension to bypass paywalls. It details the purpose, structure, and hierarchy of each ruleset, and explains how they are loaded and applied by the extension.
 
 ## 1. Introduction to Rulesets
 
