@@ -1,7 +1,7 @@
 
 import yaml from 'js-yaml';
 
-export function convertJsonToYaml(aggregatedJson, version = null) {
+export function convertJsonToYaml(aggregatedJson, version = null, sourceUrl = null) {
     console.log('Converting aggregated JSON to YAML...');
     const jsonData = JSON.parse(aggregatedJson);
 
@@ -12,7 +12,9 @@ export function convertJsonToYaml(aggregatedJson, version = null) {
     if (version) {
         versionHeader += `# version: ${version}\n`;
     }
-    versionHeader += '# source: https://bypass.example.com\n';
+    if (sourceUrl) {
+        versionHeader += `# source: ${sourceUrl}\n`;
+    }
     versionHeader += '\n';
 
     const yamlData = yaml.dump(jsonData);

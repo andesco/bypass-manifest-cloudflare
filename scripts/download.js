@@ -15,7 +15,11 @@ const filesToDownload = [
     'manifest.json'
 ];
 
-const baseUrl = 'https://bypass.example.com';
+const baseUrl = (process.env.PUBLIC_BASE_URL || process.argv[2] || '').replace(/\/+$/, '');
+if (!baseUrl) {
+    console.error('Usage: PUBLIC_BASE_URL=https://your-worker.example npm run download  (or pass the base URL as the first argument)');
+    process.exit(1);
+}
 const localDir = path.join(process.cwd(), 'local');
 
 async function downloadFiles() {

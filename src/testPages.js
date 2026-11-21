@@ -1,4 +1,4 @@
-import { TEST_RULE_DOMAIN, TEST_RULE_TITLE } from './testRules.js';
+import { TEST_RULE_TITLE } from './testRules.js';
 
 const NO_STORE = 'no-store, max-age=0';
 
@@ -153,7 +153,7 @@ function renderCaseCards() {
     </article>`).join('');
 }
 
-function renderSuite() {
+function renderSuite(testRuleDomain) {
   return htmlResponse(`<!doctype html>
 <html lang="en">
   <head>
@@ -172,7 +172,7 @@ function renderSuite() {
         <span class="status-badge status-neutral">BLACK · NEUTRAL</span>
       </div>
     </header>
-    <p class="page-intro">This single page exercises the Worker-hosted <code>${TEST_RULE_DOMAIN}</code> rule. Green is good, red is bad, and black is neutral/not currently verifiable.</p>
+    <p class="page-intro">This single page exercises the Worker-hosted <code>${testRuleDomain}</code> rule. Green is good, red is bad, and black is neutral/not currently verifiable.</p>
 
     <section id="test-summary" class="summary status-neutral" aria-live="polite">
       <span id="test-summary-badge" class="status-badge status-neutral">NEUTRAL</span>
@@ -337,7 +337,7 @@ function renderSuite() {
 
         const rule = report.rule || {};
         const ruleErrors = [];
-        if (rule.domain !== '${TEST_RULE_DOMAIN}') ruleErrors.push('domain');
+        if (rule.domain !== '${testRuleDomain}') ruleErrors.push('domain');
         if (rule.allow_cookies !== 1) ruleErrors.push('allow_cookies');
         if (rule.block_regex !== '/test/assets/blocked-script.js') ruleErrors.push('block_regex');
         if (rule.useragent !== 'googlebot') ruleErrors.push('useragent');
@@ -404,8 +404,8 @@ function renderSuite() {
 </html>`);
 }
 
-export function getTestRoute(pathname) {
-  if (pathname === '/test' || pathname === '/test/') return renderSuite();
+export function getTestRoute(pathname, testRuleDomain) {
+  if (pathname === '/test' || pathname === '/test/') return renderSuite(testRuleDomain);
   if (pathname === '/test/assets/blocked-script.js') {
     return {
       body: 'window.__bypassTestBlockedScriptExecuted = true; document.querySelector("#network-status")?.replaceChildren("The blocked script executed.");',

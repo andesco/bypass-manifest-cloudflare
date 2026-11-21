@@ -1,3 +1,4 @@
+// Public template. Copy to `cloudflare.config.ts` (gitignored) and fill in your own values.
 import { bindings, defineConfig, triggers } from "cf/config";
 
 export default defineConfig({

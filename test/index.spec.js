@@ -2,7 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:
 import { vi, beforeEach, afterEach, describe, it, expect } from 'vitest';
 import worker, { buildWorkerManifest, updateFiles } from '../src/index.js';
 import { generateAggregatedJson } from '../src/generateAggregatedJson.js';
-import { TEST_RULE_DOMAIN, TEST_RULE_TITLE } from '../src/testRules.js';
+import { getTestRuleDomain, TEST_RULE_TITLE } from '../src/testRules.js';
 
 const KV_KEYS = [
   'sites_js',
@@ -373,7 +373,7 @@ describe('worker routing and updates', () => {
       },
     });
 
-    await env.Bypass_KV.put('sites_aggregated_json', JSON.stringify([{ domain: TEST_RULE_DOMAIN }]));
+    await env.Bypass_KV.put('sites_aggregated_json', JSON.stringify([{ domain: getTestRuleDomain(env) }]));
     const ruleResponse = await worker.fetch(
       new Request('https://bypass.example.com/test/rule.json'),
       env,
@@ -382,7 +382,7 @@ describe('worker routing and updates', () => {
     const ruleReport = await ruleResponse.json();
     expect(ruleReport.title).toBe(TEST_RULE_TITLE);
     expect(ruleReport.injected_into_aggregate).toBe(true);
-    expect(ruleReport.domain).toBe(TEST_RULE_DOMAIN);
+    expect(ruleReport.domain).toBe(getTestRuleDomain(env));
   });
 
   it('regenerates aggregate from cached sources without partial source rewrites', async () => {
@@ -432,9 +432,9 @@ describe('worker routing and updates', () => {
       'base.example',
       'updated.example',
       'custom.example',
-      TEST_RULE_DOMAIN,
+      getTestRuleDomain({ PUBLIC_BASE_URL: 'https://public.example' }),
     ]);
-    expect(aggregated.find(rule => rule.domain === TEST_RULE_DOMAIN)).toMatchObject({
+    expect(aggregated.find(rule => rule.domain === getTestRuleDomain({ PUBLIC_BASE_URL: 'https://public.example' }))).toMatchObject({
       allow_cookies: 1,
       block_regex: '/test/assets/blocked-script.js',
       cs_code: expect.any(Array),
@@ -443,8 +443,8 @@ describe('worker routing and updates', () => {
     });
     expect(JSON.parse(await env.Bypass_KV.get('sites_updated'))).not.toHaveProperty(TEST_RULE_TITLE);
     expect(JSON.parse(await env.Bypass_KV.get('sites_custom'))).not.toHaveProperty(TEST_RULE_TITLE);
-    expect(await env.Bypass_KV.get('sites_aggregated_js')).toContain(TEST_RULE_DOMAIN);
-    expect(await env.Bypass_KV.get('sites_aggregated_yaml')).toContain(TEST_RULE_DOMAIN);
+    expect(await env.Bypass_KV.get('sites_aggregated_js')).toContain(getTestRuleDomain({ PUBLIC_BASE_URL: 'https://public.example' }));
+    expect(await env.Bypass_KV.get('sites_aggregated_yaml')).toContain(getTestRuleDomain({ PUBLIC_BASE_URL: 'https://public.example' }));
 
     const manifest = JSON.parse(await env.Bypass_KV.get('manifest'));
     expect(manifest.sites_aggregated_json.url).toBe('https://public.example/sites_aggregated.json');

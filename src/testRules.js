@@ -1,12 +1,18 @@
-export const TEST_RULE_DOMAIN = 'bypass.example.com';
+import { getPublicBaseUrl } from './sources.js';
+
 export const TEST_RULE_TITLE = 'Bypass Manifest test harness';
 
 // This rule is intentionally scoped to the Worker host. It gives the browser
 // fixtures a stable way to exercise the most common rule mechanisms without
 // changing any mirrored upstream source file.
-export const WORKER_TEST_RULES = {
+export function getTestRuleDomain(env) {
+  return new URL(getPublicBaseUrl(env)).hostname;
+}
+
+export function buildWorkerTestRules(domain) {
+  return {
   [TEST_RULE_TITLE]: {
-    domain: TEST_RULE_DOMAIN,
+    domain,
     allow_cookies: 1,
     // Keep this pattern simple enough for Safari's DNR adapter to lower it to
     // a urlFilter; Safari rejects rules that remain regexFilter rules.
@@ -28,8 +34,9 @@ export const WORKER_TEST_RULES = {
     ld_json: '#test-jsonld-paywall|#test-jsonld-content',
     remove_cookies_select_drop: ['bypass_manifest_test'],
   },
-};
+  };
+}
 
-export function getWorkerTestRule(rules = WORKER_TEST_RULES) {
-  return rules[TEST_RULE_TITLE] || null;
+export function getWorkerTestRule(domain) {
+  return buildWorkerTestRules(domain)[TEST_RULE_TITLE] || null;
 }

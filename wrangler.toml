@@ -1,3 +1,4 @@
+# Public template. Put your real values in `wrangler.local.toml` (gitignored); see readme.md.
 name = "bypass-manifest-cloudflare"
 main = "src/index.js"
 compatibility_date = "2026-05-27"
@@ -16,8 +17,8 @@ crons = ["0 */6 * * *"]
 
 [[kv_namespaces]]
 binding = "Bypass_KV"
-id = "your-kv-namespace-id"
+id = "" # your KV namespace ID
 
 [vars]
-GIT_REPOSITORY_URL = "https://git.example.com/project/{username}/{repository}/"
+GIT_REPOSITORY_URL = "" # https://git.example.com/project/{username}/{repository}
 PUBLIC_BASE_URL = "https://bypass.example.com"

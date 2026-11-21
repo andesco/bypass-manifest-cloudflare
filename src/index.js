@@ -17,7 +17,7 @@ import {
 } from './routes.js';
 import { getPublicBaseUrl, getSourceUrls, SOURCE_METADATA_KEYS } from './sources.js';
 import { getTestRoute, NO_STORE } from './testPages.js';
-import { getWorkerTestRule, TEST_RULE_DOMAIN, TEST_RULE_TITLE, WORKER_TEST_RULES } from './testRules.js';
+import { buildWorkerTestRules, getTestRuleDomain, getWorkerTestRule, TEST_RULE_TITLE } from './testRules.js';
 import { parseChromeUpdatesXml, parseFirefoxUpdatesJson } from './updateSources.js';
 import { validateAggregatedJson, validateRulesJson } from './validation.js';
 
@@ -76,7 +76,7 @@ const worker = {
       });
     }
 
-    const testRoute = getTestRoute(url.pathname);
+    const testRoute = getTestRoute(url.pathname, getTestRuleDomain(env));
     if (testRoute) {
       return new Response(testRoute.body, {
         headers: {
@@ -273,7 +273,7 @@ async function buildUpdatePlan(env, forceUpdate, log) {
 
   // Keep the test rule out of mirrored sources while making it available in
   // the aggregate consumed by the extension on the Worker test host.
-  const aggregateInputs = [chrome.json, sitesUpdated.text, sitesCustom.text, WORKER_TEST_RULES];
+  const aggregateInputs = [chrome.json, sitesUpdated.text, sitesCustom.text, buildWorkerTestRules(getTestRuleDomain(env))];
   const sitesJsTemplate = chrome.js || firefox.js;
   if (!chrome.json || !sitesUpdated.text || !sitesCustom.text) {
     throw new Error('Missing source files required for aggregation.');
@@ -289,7 +289,7 @@ async function buildUpdatePlan(env, forceUpdate, log) {
     staged.metadata.sites_updated.version,
     versions.remote_manifest,
   ]);
-  const aggregatedYaml = convertJsonToYaml(aggregatedJson, aggregateVersion);
+  const aggregatedYaml = convertJsonToYaml(aggregatedJson, aggregateVersion, getPublicBaseUrl(env));
 
   staged.writes.push({ key: 'sites_aggregated_js', value: aggregatedJs });
   staged.writes.push({ key: 'sites_aggregated_json', value: aggregatedJson });
@@ -363,7 +363,8 @@ async function commitStagedUpdate(env, staged) {
 }
 
 async function buildTestRuleReport(env) {
-  const expectedRule = getWorkerTestRule();
+  const testRuleDomain = getTestRuleDomain(env);
+  const expectedRule = getWorkerTestRule(testRuleDomain);
   const aggregateRaw = await env.Bypass_KV.get('sites_aggregated_json');
   let aggregateRule = null;
   let aggregateError = null;
@@ -371,14 +372,14 @@ async function buildTestRuleReport(env) {
   if (aggregateRaw) {
     try {
       const aggregate = JSON.parse(aggregateRaw);
-      aggregateRule = aggregate.find(rule => rule?.domain === TEST_RULE_DOMAIN) || null;
+      aggregateRule = aggregate.find(rule => rule?.domain === testRuleDomain) || null;
     } catch (error) {
       aggregateError = String(error?.message || error);
     }
   }
 
   return {
-    domain: TEST_RULE_DOMAIN,
+    domain: testRuleDomain,
     title: TEST_RULE_TITLE,
     injected_into_aggregate: Boolean(aggregateRule),
     aggregate_error: aggregateError,
