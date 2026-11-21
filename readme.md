@@ -96,7 +96,7 @@ These files are extracted from the latest Chrome `.crx` referenced in `updates.x
 
 ## Environment Variables
 
-`wrangler.toml` and `cloudflare.config.example.ts` are public templates with placeholder values. Keep your real account, domain, KV namespace ID and upstream URL in local-only files that are gitignored: `wrangler.local.toml` (deploy with `npm run deploy:local`) or `cloudflare.config.ts` (copy it from `cloudflare.config.example.ts`). Set `PUBLIC_BASE_URL` to the Worker's public origin; the test-rule domain, manifest URLs and the YAML header are derived from it.
+`wrangler.toml` and `cloudflare.config.ts` are public templates with placeholder values. Keep your real account, domain, KV namespace ID and upstream URL in local-only, gitignored files: `wrangler.local.toml` (deploy with `npm run deploy:local`) and `cloudflare.config.local.ts`. The `cf` CLI only auto-discovers `cloudflare.config.ts`, so to deploy with it temporarily copy your local file over the template and restore it afterwards. Set `PUBLIC_BASE_URL` to the Worker's public origin; the test-rule domain, manifest URLs and the YAML header are derived from it.
 
 You have two ways to configure environment variables:
 
